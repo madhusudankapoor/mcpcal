@@ -9,5 +9,6 @@
     "types": ["node"],
     "sourceMap": true
   },
-  "include": ["src/server/**/*.ts", "src/client/client-backend.ts", "src/shared/**/*.ts"]
+  "include": ["src/server/**/*.ts", "src/client/**/*.ts", "src/shared/**/*.ts"],
+  "exclude": ["src/client/ui/**/*.ts"]
 }

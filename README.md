@@ -72,7 +72,11 @@ mcp-calculator/
 │   ├── server/
 │   │   └── calculator-server.ts    # MCP server (tools live here)
 │   ├── client/
-│   │   ├── client-backend.ts       # Express backend + MCP client + OpenAI orchestrator
+│   │   ├── client-backend.ts       # Express + MCP client + AI helpers (the main story)
+│   │   ├── trace.ts                # Learning console trace/logging system
+│   │   ├── formatters.ts           # Human-readable message summarizers
+│   │   ├── mcp-payload.ts          # MCP response parsing and tool normalization
+│   │   ├── utils.ts                # Generic runtime helpers (isRecord, getString, etc.)
 │   │   └── ui/
 │   │       └── app.ts              # Browser-side UI logic
 │   └── shared/
