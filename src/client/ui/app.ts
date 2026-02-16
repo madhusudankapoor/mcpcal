@@ -500,6 +500,7 @@ async function executePendingCalculation(nextTool: ToolName | null, nextSymbol: 
     );
   } finally {
     setLoading(false);
+    void checkDailyLimit();
   }
 }
 
@@ -588,14 +589,64 @@ async function handleEquals(): Promise<void> {
     );
   } finally {
     setLoading(false);
+    void checkDailyLimit();
   }
 }
 
 let chatLoading = false;
+let dailyLimitReached = false;
+
+interface DailyLimitStatus {
+  limitReached: boolean;
+  count: number;
+  limit: number;
+}
+
+function isDailyLimitStatus(value: unknown): value is DailyLimitStatus {
+  return (
+    isRecord(value) &&
+    typeof value.limitReached === "boolean" &&
+    typeof value.count === "number" &&
+    typeof value.limit === "number"
+  );
+}
+
+function applyDailyLimitLockout(status: DailyLimitStatus): void {
+  dailyLimitReached = status.limitReached;
+  if (!dailyLimitReached) {
+    return;
+  }
+  chatSendButton.disabled = true;
+  chatInputElement.disabled = true;
+  chatInputElement.placeholder = "";
+  chatResponseElement.classList.remove("loading");
+  chatResponseElement.classList.add("error");
+  chatResponseElement.textContent =
+    `Today's demo quota of ${String(status.limit)} requests has been reached. You can try again tomorrow.`;
+
+  // Also disable calculator operator and equals buttons
+  buttonElements.forEach((button) => {
+    if (button.dataset.tool || button.dataset.action === "equals") {
+      button.disabled = true;
+    }
+  });
+}
+
+async function checkDailyLimit(): Promise<void> {
+  try {
+    const response = await fetch("/daily-limit-status");
+    const payload: unknown = await response.json();
+    if (response.ok && isDailyLimitStatus(payload)) {
+      applyDailyLimitLockout(payload);
+    }
+  } catch {
+    // Silently ignore — limit enforcement still happens server-side.
+  }
+}
 
 async function sendChatMessage(): Promise<void> {
   const message = chatInputElement.value.trim();
-  if (!message || chatLoading) {
+  if (!message || chatLoading || dailyLimitReached) {
     return;
   }
 
@@ -678,6 +729,7 @@ async function sendChatMessage(): Promise<void> {
     chatSendButton.disabled  = false;
     chatInputElement.disabled = false;
     chatInputElement.focus();
+    void checkDailyLimit();
   }
 }
 
@@ -896,6 +948,7 @@ emitUiTrace(
 void loadConsoleHistory();
 connectTraceStream();
 void initializeTools();
+void checkDailyLimit();
 
 window.addEventListener("beforeunload", () => {
   traceStream?.close();

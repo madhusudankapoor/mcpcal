@@ -5,3 +5,4 @@ public/app.js.map
 npm-debug.log*
 .DS_Store
 .env
+daily-usage.json

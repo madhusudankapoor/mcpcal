@@ -27,6 +27,7 @@ import { isRecord } from "./utils.js";
 import { parseToolPayload, operatorForTool, normalizeDiscoveredTools } from "./mcp-payload.js";
 import { log, publishTrace, traceClients, traceHistory } from "./trace.js";
 import { summarizeMessagesForHumans, summarizeLlmResponseForHumans } from "./formatters.js";
+import { dailyLimitMiddleware, getDailyUsage, isDailyLimitReached, DAILY_REQUEST_LIMIT } from "./daily-limit.js";
 
 /* ---------------------------------------------------------------------------
  * Constants and state
@@ -345,6 +346,8 @@ const llmLimiter = rateLimit({
 app.use(generalLimiter);
 app.use("/chat", llmLimiter);
 app.use("/calculate", llmLimiter);
+app.use("/chat", dailyLimitMiddleware);
+app.use("/calculate", dailyLimitMiddleware);
 
 /* Request timing logger (skips /healthz to reduce noise). */
 app.use((req: Request, res: Response, next: NextFunction) => {
@@ -473,6 +476,16 @@ app.use(express.static(publicDir));
 /* Health probe. */
 app.get("/healthz", (_req: Request, res: Response) => {
   res.json({ status: "ok" });
+});
+
+/* Daily limit status for the frontend. */
+app.get("/daily-limit-status", (_req: Request, res: Response) => {
+  const usage = getDailyUsage();
+  res.json({
+    limitReached: isDailyLimitReached(),
+    count: usage.count,
+    limit: DAILY_REQUEST_LIMIT
+  });
 });
 
 /* Discovered tools for the browser. */
