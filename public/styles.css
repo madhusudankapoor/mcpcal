@@ -1,0 +1,156 @@
+:root {
+  --bg-start: #f0f4f8;
+  --bg-end: #d9e2ec;
+  --panel: #ffffff;
+  --panel-border: #cbd2d9;
+  --text: #102a43;
+  --muted: #486581;
+  --primary: #1f7a8c;
+  --primary-strong: #135c6b;
+  --accent: #f0a500;
+  --danger: #cc2936;
+  --button: #f8fafc;
+  --button-hover: #dfe9f3;
+  --shadow: 0 18px 40px rgba(16, 42, 67, 0.14);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  min-height: 100vh;
+  font-family: "Avenir Next", "Segoe UI", "Helvetica Neue", sans-serif;
+  color: var(--text);
+  background: linear-gradient(130deg, var(--bg-start), var(--bg-end));
+}
+
+.page {
+  min-height: 100vh;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+}
+
+.calculator {
+  width: min(420px, 100%);
+  background: var(--panel);
+  border: 1px solid var(--panel-border);
+  border-radius: 24px;
+  box-shadow: var(--shadow);
+  padding: 20px;
+}
+
+.display-wrap {
+  background: linear-gradient(180deg, #f9fbfd, #edf3f8);
+  border: 1px solid #d7e2ec;
+  border-radius: 16px;
+  padding: 14px;
+  min-height: 122px;
+}
+
+.expression {
+  margin: 0;
+  min-height: 22px;
+  text-align: right;
+  color: var(--muted);
+  font-size: 0.95rem;
+  letter-spacing: 0.01em;
+}
+
+.display {
+  margin: 8px 0 4px;
+  min-height: 52px;
+  text-align: right;
+  font-size: clamp(2rem, 6vw, 2.6rem);
+  font-weight: 700;
+}
+
+.status {
+  margin: 0;
+  min-height: 22px;
+  font-size: 0.92rem;
+  color: var(--muted);
+}
+
+.status.error {
+  color: var(--danger);
+  font-weight: 600;
+}
+
+.buttons {
+  margin-top: 16px;
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.btn {
+  border: 1px solid #d5dee8;
+  border-radius: 14px;
+  background: var(--button);
+  color: var(--text);
+  font-size: 1.05rem;
+  font-weight: 600;
+  min-height: 54px;
+  cursor: pointer;
+  transition:
+    transform 120ms ease,
+    background-color 120ms ease,
+    box-shadow 120ms ease;
+}
+
+.btn:hover:not(:disabled) {
+  background: var(--button-hover);
+  transform: translateY(-1px);
+}
+
+.btn:active:not(:disabled) {
+  transform: translateY(1px);
+}
+
+.btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.btn-op {
+  background: color-mix(in srgb, var(--primary) 12%, white);
+}
+
+.btn-equals {
+  background: color-mix(in srgb, var(--accent) 22%, white);
+}
+
+.btn-clear {
+  background: color-mix(in srgb, var(--danger) 16%, white);
+}
+
+.btn-zero {
+  grid-column: span 4;
+}
+
+body.loading .calculator {
+  animation: pulse 1s ease-in-out infinite alternate;
+}
+
+@keyframes pulse {
+  from {
+    box-shadow: var(--shadow);
+  }
+  to {
+    box-shadow: 0 24px 48px rgba(16, 42, 67, 0.2);
+  }
+}
+
+@media (max-width: 480px) {
+  .calculator {
+    border-radius: 18px;
+    padding: 16px;
+  }
+
+  .btn {
+    min-height: 50px;
+  }
+}

@@ -1,0 +1,46 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>MCP Calculator (TypeScript)</title>
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <main class="page">
+      <section class="calculator" aria-label="MCP calculator">
+        <header class="display-wrap">
+          <p id="expression-display" class="expression" aria-live="polite"></p>
+          <h1 id="display" class="display" aria-live="polite">0</h1>
+          <p id="status" class="status" aria-live="polite"></p>
+        </header>
+
+        <div class="buttons" role="group" aria-label="Calculator buttons">
+          <button class="btn btn-clear" data-action="clear">C</button>
+          <button class="btn btn-op" data-tool="divide" data-symbol="÷">÷</button>
+          <button class="btn btn-op" data-tool="multiply" data-symbol="×">×</button>
+          <button class="btn btn-op" data-tool="subtract" data-symbol="-">-</button>
+
+          <button class="btn" data-digit="7">7</button>
+          <button class="btn" data-digit="8">8</button>
+          <button class="btn" data-digit="9">9</button>
+          <button class="btn btn-op" data-tool="add" data-symbol="+">+</button>
+
+          <button class="btn" data-digit="4">4</button>
+          <button class="btn" data-digit="5">5</button>
+          <button class="btn" data-digit="6">6</button>
+          <button class="btn btn-equals" data-action="equals">=</button>
+
+          <button class="btn" data-digit="1">1</button>
+          <button class="btn" data-digit="2">2</button>
+          <button class="btn" data-digit="3">3</button>
+          <button class="btn" data-action="decimal">.</button>
+
+          <button class="btn btn-zero" data-digit="0">0</button>
+        </div>
+      </section>
+    </main>
+
+    <script type="module" src="/app.js"></script>
+  </body>
+</html>
