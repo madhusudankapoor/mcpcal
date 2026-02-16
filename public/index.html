@@ -38,6 +38,18 @@
 
           <button class="btn btn-zero" data-digit="0">0</button>
         </div>
+
+        <section class="console-panel" aria-label="MCP learning console">
+          <div class="console-header">
+            <h2 class="console-title">MCP Learning Console</h2>
+            <div class="console-controls">
+              <span id="console-connection" class="console-connection connecting">Connecting...</span>
+              <button id="console-clear" class="console-clear" type="button">Clear</button>
+            </div>
+          </div>
+          <p class="console-help">Live timeline explaining each MCP step from UI input to server result.</p>
+          <ul id="console-list" class="console-list" aria-live="polite"></ul>
+        </section>
       </section>
     </main>
 

@@ -34,7 +34,7 @@ body {
 }
 
 .calculator {
-  width: min(420px, 100%);
+  width: min(520px, 100%);
   background: var(--panel);
   border: 1px solid var(--panel-border);
   border-radius: 24px;
@@ -131,6 +131,149 @@ body {
   grid-column: span 4;
 }
 
+.console-panel {
+  margin-top: 16px;
+  border: 1px solid #11304f;
+  border-radius: 16px;
+  overflow: hidden;
+  background: linear-gradient(180deg, #0e2237, #0b1a2c);
+  color: #d9e6f5;
+}
+
+.console-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 12px;
+  border-bottom: 1px solid rgba(205, 224, 245, 0.2);
+}
+
+.console-title {
+  margin: 0;
+  font-size: 0.94rem;
+  letter-spacing: 0.02em;
+}
+
+.console-controls {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.console-connection {
+  padding: 3px 8px;
+  border-radius: 999px;
+  font-size: 0.74rem;
+  font-weight: 700;
+  background: #1f3b58;
+  color: #d9e6f5;
+}
+
+.console-connection.connected {
+  background: color-mix(in srgb, var(--primary) 70%, #ffffff 30%);
+  color: #ffffff;
+}
+
+.console-connection.connecting {
+  background: #2a4765;
+  color: #deebfb;
+}
+
+.console-connection.disconnected {
+  background: color-mix(in srgb, var(--danger) 75%, #ffffff 25%);
+  color: #ffffff;
+}
+
+.console-clear {
+  border: 1px solid rgba(205, 224, 245, 0.4);
+  border-radius: 9px;
+  background: transparent;
+  color: #deebfb;
+  font-size: 0.75rem;
+  font-weight: 700;
+  line-height: 1;
+  padding: 7px 10px;
+  cursor: pointer;
+}
+
+.console-clear:hover {
+  background: rgba(220, 234, 251, 0.16);
+}
+
+.console-help {
+  margin: 0;
+  padding: 8px 12px;
+  color: #abc4df;
+  font-size: 0.8rem;
+  border-bottom: 1px solid rgba(205, 224, 245, 0.15);
+}
+
+.console-list {
+  list-style: none;
+  margin: 0;
+  padding: 10px;
+  max-height: 250px;
+  overflow: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+}
+
+.console-entry {
+  border: 1px solid rgba(205, 224, 245, 0.2);
+  border-radius: 10px;
+  background: rgba(232, 244, 255, 0.06);
+  padding: 8px;
+}
+
+.console-entry.error {
+  border-color: rgba(255, 167, 176, 0.55);
+  background: rgba(219, 76, 96, 0.14);
+}
+
+.console-meta {
+  margin: 0;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.72rem;
+  color: #a7bfd8;
+}
+
+.console-time {
+  color: #98b8d8;
+}
+
+.console-component {
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  border: 1px solid rgba(194, 216, 239, 0.35);
+  border-radius: 999px;
+  padding: 1px 6px;
+}
+
+.console-event {
+  color: #b8d2eb;
+  font-weight: 700;
+}
+
+.console-summary {
+  margin: 6px 0 0;
+  font-size: 0.8rem;
+  font-weight: 700;
+  color: #e9f2fc;
+}
+
+.console-explanation {
+  margin: 4px 0 0;
+  font-size: 0.77rem;
+  line-height: 1.35;
+  color: #bfd4ea;
+}
+
 body.loading .calculator {
   animation: pulse 1s ease-in-out infinite alternate;
 }
@@ -152,5 +295,9 @@ body.loading .calculator {
 
   .btn {
     min-height: 50px;
+  }
+
+  .console-list {
+    max-height: 220px;
   }
 }

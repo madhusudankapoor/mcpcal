@@ -93,3 +93,21 @@ export interface ToolExecutionErrorPayload {
 }
 
 export type ToolExecutionPayload = ToolExecutionSuccessPayload | ToolExecutionErrorPayload;
+
+export type TraceLevel = "INFO" | "ERROR";
+export type TraceComponent = "ui" | "client-backend" | "mcp-calculator-server" | "mcp-protocol";
+
+export interface McpConsoleEvent {
+  id: number;
+  ts: string;
+  level: TraceLevel;
+  component: TraceComponent;
+  event: string;
+  summary: string;
+  explanation: string;
+  data?: Record<string, unknown>;
+}
+
+export interface McpConsoleEventsResponse {
+  events: McpConsoleEvent[];
+}

@@ -53,6 +53,18 @@ npm run dev
 
 `npm run dev` builds and starts the client backend, which automatically spawns the MCP server process over stdio.
 
+## MCP Learning Console (UI)
+
+The calculator UI includes a live, user-facing console that explains MCP flow in plain language.
+
+- Phase 1: handshake
+- Phase 2: tool discovery
+- Phase 3: tool execution
+
+Events stream from backend using Server-Sent Events:
+- `GET /mcp-events` (history snapshot)
+- `GET /mcp-events/stream` (live updates)
+
 ## Architecture
 
 ```text

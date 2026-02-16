@@ -1,4 +1,6 @@
 type ToolName = "add" | "subtract" | "multiply" | "divide";
+type TraceLevel = "INFO" | "ERROR";
+type TraceComponent = "ui" | "client-backend" | "mcp-calculator-server" | "mcp-protocol";
 
 interface CalculateSuccessResponse {
   result: number;
@@ -20,6 +22,21 @@ interface ToolsResponse {
   tools: ToolDefinition[];
 }
 
+interface McpConsoleEvent {
+  id: number;
+  ts: string;
+  level: TraceLevel;
+  component: TraceComponent;
+  event: string;
+  summary: string;
+  explanation: string;
+  data?: Record<string, unknown>;
+}
+
+interface McpConsoleEventsResponse {
+  events: McpConsoleEvent[];
+}
+
 interface CalculatorState {
   currentInput: string;
   firstOperand: number | null;
@@ -33,6 +50,14 @@ interface CalculatorState {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null;
+}
+
+function isTraceLevel(value: unknown): value is TraceLevel {
+  return value === "INFO" || value === "ERROR";
+}
+
+function isTraceComponent(value: unknown): value is TraceComponent {
+  return value === "ui" || value === "client-backend" || value === "mcp-calculator-server" || value === "mcp-protocol";
 }
 
 function isCalculateSuccessResponse(value: unknown): value is CalculateSuccessResponse {
@@ -67,15 +92,62 @@ function isToolsResponse(value: unknown): value is ToolsResponse {
   });
 }
 
+function isMcpConsoleEvent(value: unknown): value is McpConsoleEvent {
+  return (
+    isRecord(value) &&
+    typeof value.id === "number" &&
+    typeof value.ts === "string" &&
+    isTraceLevel(value.level) &&
+    isTraceComponent(value.component) &&
+    typeof value.event === "string" &&
+    typeof value.summary === "string" &&
+    typeof value.explanation === "string" &&
+    (value.data === undefined || isRecord(value.data))
+  );
+}
+
+function isMcpConsoleEventsResponse(value: unknown): value is McpConsoleEventsResponse {
+  return isRecord(value) && Array.isArray(value.events) && value.events.every((event) => isMcpConsoleEvent(event));
+}
+
+function componentLabel(component: TraceComponent): string {
+  switch (component) {
+    case "ui":
+      return "UI";
+    case "client-backend":
+      return "Backend";
+    case "mcp-calculator-server":
+      return "MCP Server";
+    case "mcp-protocol":
+      return "Protocol";
+    default:
+      return "Unknown";
+  }
+}
+
+function formatTime(isoTimestamp: string): string {
+  const date = new Date(isoTimestamp);
+  if (Number.isNaN(date.getTime())) {
+    return isoTimestamp;
+  }
+  return date.toLocaleTimeString([], { hour12: false });
+}
+
 const displayElementRaw = document.getElementById("display");
 const expressionElementRaw = document.getElementById("expression-display");
 const statusElementRaw = document.getElementById("status");
+const consoleListRaw = document.getElementById("console-list");
+const consoleConnectionRaw = document.getElementById("console-connection");
+const consoleClearRaw = document.getElementById("console-clear");
 const buttonElements = Array.from(document.querySelectorAll<HTMLButtonElement>(".btn"));
 
 if (
   !(displayElementRaw instanceof HTMLElement) ||
   !(expressionElementRaw instanceof HTMLElement) ||
-  !(statusElementRaw instanceof HTMLElement)
+  !(statusElementRaw instanceof HTMLElement) ||
+  !(consoleListRaw instanceof HTMLUListElement) ||
+  !(consoleConnectionRaw instanceof HTMLElement) ||
+  !(consoleClearRaw instanceof HTMLButtonElement)
 ) {
   throw new Error("Calculator UI did not initialize. Required DOM elements are missing.");
 }
@@ -83,6 +155,16 @@ if (
 const displayElement: HTMLElement = displayElementRaw;
 const expressionElement: HTMLElement = expressionElementRaw;
 const statusElement: HTMLElement = statusElementRaw;
+const consoleListElement: HTMLUListElement = consoleListRaw;
+const consoleConnectionElement: HTMLElement = consoleConnectionRaw;
+const consoleClearButton: HTMLButtonElement = consoleClearRaw;
+
+const MAX_CONSOLE_ENTRIES = 120;
+const UI_TRACE_OFFSET = 1_000_000;
+const seenTraceIds = new Set<number>();
+let uiTraceCounter = 1;
+let streamState: "connecting" | "connected" | "disconnected" = "connecting";
+let traceStream: EventSource | null = null;
 
 const state: CalculatorState = {
   currentInput: "0",
@@ -97,6 +179,93 @@ const state: CalculatorState = {
 
 function log(event: string, payload: unknown = {}): void {
   console.log(`[ui] ${event}`, payload);
+}
+
+function setStreamState(nextState: "connecting" | "connected" | "disconnected"): void {
+  streamState = nextState;
+  consoleConnectionElement.textContent =
+    nextState === "connected" ? "Live" : nextState === "connecting" ? "Connecting..." : "Disconnected";
+  consoleConnectionElement.classList.remove("connected", "connecting", "disconnected");
+  consoleConnectionElement.classList.add(nextState);
+}
+
+function appendConsoleEvent(trace: McpConsoleEvent): void {
+  if (seenTraceIds.has(trace.id)) {
+    return;
+  }
+  seenTraceIds.add(trace.id);
+
+  const listItem = document.createElement("li");
+  listItem.className = `console-entry${trace.level === "ERROR" ? " error" : ""}`;
+
+  const meta = document.createElement("p");
+  meta.className = "console-meta";
+
+  const time = document.createElement("span");
+  time.className = "console-time";
+  time.textContent = formatTime(trace.ts);
+
+  const component = document.createElement("span");
+  component.className = "console-component";
+  component.textContent = componentLabel(trace.component);
+
+  const eventLabel = document.createElement("span");
+  eventLabel.className = "console-event";
+  eventLabel.textContent = trace.event;
+
+  meta.append(time, component, eventLabel);
+
+  const summary = document.createElement("p");
+  summary.className = "console-summary";
+  summary.textContent = trace.summary;
+
+  const explanation = document.createElement("p");
+  explanation.className = "console-explanation";
+  explanation.textContent = trace.explanation;
+
+  listItem.append(meta, summary, explanation);
+  consoleListElement.append(listItem);
+
+  while (consoleListElement.children.length > MAX_CONSOLE_ENTRIES) {
+    if (consoleListElement.firstElementChild) {
+      consoleListElement.removeChild(consoleListElement.firstElementChild);
+    }
+  }
+
+  consoleListElement.scrollTop = consoleListElement.scrollHeight;
+}
+
+function createUiTrace(
+  event: string,
+  summary: string,
+  explanation: string,
+  level: TraceLevel = "INFO",
+  data?: unknown
+): McpConsoleEvent {
+  const trace: McpConsoleEvent = {
+    id: UI_TRACE_OFFSET + uiTraceCounter,
+    ts: new Date().toISOString(),
+    level,
+    component: "ui",
+    event,
+    summary,
+    explanation,
+    data: isRecord(data) ? data : undefined
+  };
+  uiTraceCounter += 1;
+  return trace;
+}
+
+function emitUiTrace(
+  event: string,
+  summary: string,
+  explanation: string,
+  level: TraceLevel = "INFO",
+  data?: unknown
+): void {
+  const trace = createUiTrace(event, summary, explanation, level, data);
+  appendConsoleEvent(trace);
+  log(event, data ?? {});
 }
 
 function formatNumber(value: number): string {
@@ -114,6 +283,7 @@ function setLoading(loading: boolean): void {
   buttonElements.forEach((button) => {
     button.disabled = loading;
   });
+  consoleClearButton.disabled = loading;
   document.body.classList.toggle("loading", loading);
   if (loading) {
     setStatus("Calculating...");
@@ -136,7 +306,11 @@ function clearAll(): void {
   state.expression = "";
   setStatus("");
   updateDisplay();
-  log("clear");
+  emitUiTrace(
+    "ui_state_cleared",
+    "Calculator state reset in the browser.",
+    "UI owns first/second operand state. MCP server stays stateless between requests."
+  );
 }
 
 function appendDigit(digit: string): void {
@@ -172,7 +346,14 @@ async function callCalculate(tool: ToolName, a: number, b: number): Promise<Calc
     args: { a, b }
   };
 
-  log("calculate_request", requestPayload);
+  emitUiTrace(
+    "ui_calculate_request_sent",
+    `UI -> Backend: POST /calculate for ${tool}(${String(a)}, ${String(b)}).`,
+    "This starts Phase 3. Backend validates payload, then forwards it as MCP callTool().",
+    "INFO",
+    requestPayload
+  );
+
   const response = await fetch("/calculate", {
     method: "POST",
     headers: {
@@ -189,12 +370,24 @@ async function callCalculate(tool: ToolName, a: number, b: number): Promise<Calc
   }
 
   if (response.ok && isCalculateSuccessResponse(payload)) {
-    log("calculate_response_success", payload);
+    emitUiTrace(
+      "ui_calculate_response_success",
+      `Backend -> UI: received result ${String(payload.result)}.`,
+      "UI updates display only after typed response validation succeeds.",
+      "INFO",
+      payload
+    );
     return payload;
   }
 
   if (isApiErrorResponse(payload)) {
-    log("calculate_response_error", payload);
+    emitUiTrace(
+      "ui_calculate_response_error",
+      "Backend returned a typed error response.",
+      "Errors from validation or MCP tool execution are shown to users in clear text.",
+      "ERROR",
+      payload
+    );
     throw new Error(payload.details ? `${payload.error} ${payload.details}` : payload.error);
   }
 
@@ -228,6 +421,13 @@ async function executePendingCalculation(nextTool: ToolName | null, nextSymbol: 
   } catch (error: unknown) {
     const message = error instanceof Error ? error.message : "Calculation failed.";
     setStatus(message, true);
+    emitUiTrace(
+      "ui_calculation_failed",
+      "Calculation failed and error was shown.",
+      "Failure can come from backend validation or MCP tool error payloads.",
+      "ERROR",
+      { message }
+    );
   } finally {
     setLoading(false);
   }
@@ -248,6 +448,13 @@ async function handleOperator(symbol: string, tool: ToolName): Promise<void> {
     state.awaitingSecondOperand = true;
     state.expression = `${formatNumber(first)} ${symbol}`;
     updateDisplay();
+    emitUiTrace(
+      "ui_operator_selected",
+      `Operator selected: ${symbol}.`,
+      "UI keeps local state until it has both operands and is ready to request MCP execution.",
+      "INFO",
+      { firstOperand: first, tool }
+    );
     return;
   }
 
@@ -256,6 +463,11 @@ async function handleOperator(symbol: string, tool: ToolName): Promise<void> {
     state.pendingSymbol = symbol;
     state.expression = `${formatNumber(state.firstOperand)} ${symbol}`;
     updateDisplay();
+    emitUiTrace(
+      "ui_operator_updated",
+      `Operator changed to ${symbol} before second operand entry.`,
+      "No MCP call needed yet because the second operand is still pending."
+    );
     return;
   }
 
@@ -297,6 +509,13 @@ async function handleEquals(): Promise<void> {
   } catch (error: unknown) {
     const message = error instanceof Error ? error.message : "Calculation failed.";
     setStatus(message, true);
+    emitUiTrace(
+      "ui_equals_failed",
+      "Equals operation failed.",
+      "UI preserved state and surfaced the backend/MCP error message.",
+      "ERROR",
+      { message }
+    );
   } finally {
     setLoading(false);
   }
@@ -338,8 +557,96 @@ function bindButtonHandlers(): void {
   });
 }
 
+async function loadConsoleHistory(): Promise<void> {
+  try {
+    const response = await fetch("/mcp-events");
+    const payload: unknown = await response.json();
+    if (!response.ok || !isMcpConsoleEventsResponse(payload)) {
+      throw new Error("Unable to load MCP trace history.");
+    }
+    payload.events.forEach((event) => {
+      appendConsoleEvent(event);
+    });
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : "Unable to load MCP trace history.";
+    emitUiTrace(
+      "ui_trace_history_failed",
+      "Could not load initial MCP trace history.",
+      "The calculator still works, but you may miss startup trace entries until live stream reconnects.",
+      "ERROR",
+      { message }
+    );
+  }
+}
+
+function connectTraceStream(): void {
+  setStreamState("connecting");
+  traceStream = new EventSource("/mcp-events/stream");
+
+  traceStream.addEventListener("open", () => {
+    const previousState = streamState;
+    setStreamState("connected");
+    if (previousState !== "connected") {
+      emitUiTrace(
+        "ui_trace_stream_connected",
+        "Connected to live MCP event stream.",
+        "You will now see phase-by-phase protocol activity in real time."
+      );
+    }
+  });
+
+  traceStream.addEventListener("trace", (event: Event) => {
+    if (!(event instanceof MessageEvent)) {
+      return;
+    }
+
+    let payload: unknown;
+    try {
+      payload = JSON.parse(event.data);
+    } catch {
+      emitUiTrace(
+        "ui_trace_parse_failed",
+        "Received malformed trace message.",
+        "The event stream delivered text that was not valid JSON.",
+        "ERROR"
+      );
+      return;
+    }
+
+    if (!isMcpConsoleEvent(payload)) {
+      emitUiTrace(
+        "ui_trace_invalid_shape",
+        "Trace message had unexpected shape.",
+        "Type guards rejected the payload to keep UI rendering safe.",
+        "ERROR"
+      );
+      return;
+    }
+
+    appendConsoleEvent(payload);
+  });
+
+  traceStream.addEventListener("error", () => {
+    if (streamState !== "disconnected") {
+      setStreamState("disconnected");
+      emitUiTrace(
+        "ui_trace_stream_disconnected",
+        "Live trace stream disconnected.",
+        "EventSource will retry automatically; once connected, updates resume.",
+        "ERROR"
+      );
+    }
+  });
+}
+
 async function initializeTools(): Promise<void> {
   try {
+    emitUiTrace(
+      "ui_tool_discovery_started",
+      "UI is requesting available calculator tools.",
+      "The UI asks backend for discovered tools instead of hardcoding capabilities."
+    );
+
     const response = await fetch("/tools");
     const payload: unknown = await response.json();
 
@@ -358,13 +665,48 @@ async function initializeTools(): Promise<void> {
       }
     });
 
-    log("tools_discovered", { tools: payload.tools.map((tool) => tool.name) });
+    emitUiTrace(
+      "ui_tool_discovery_complete",
+      `UI discovered ${String(payload.tools.length)} tool(s): ${payload.tools.map((tool) => tool.name).join(", ")}.`,
+      "Buttons remain enabled only for tools currently advertised by backend discovery.",
+      "INFO",
+      { tools: payload.tools.map((tool) => tool.name) }
+    );
   } catch (error: unknown) {
     const message = error instanceof Error ? error.message : "Failed to load calculator tools.";
     setStatus(message, true);
+    emitUiTrace(
+      "ui_tool_discovery_failed",
+      "Tool discovery failed.",
+      "Without discovery the UI cannot guarantee backend tool availability.",
+      "ERROR",
+      { message }
+    );
   }
 }
 
 bindButtonHandlers();
 clearAll();
+
+consoleClearButton.addEventListener("click", () => {
+  consoleListElement.replaceChildren();
+  emitUiTrace(
+    "ui_console_cleared",
+    "Learning console cleared.",
+    "Incoming live events continue streaming; older entries were removed only from this browser view."
+  );
+});
+
+emitUiTrace(
+  "ui_boot",
+  "Calculator UI booted.",
+  "Next steps: fetch discovered tools, connect to live MCP trace stream, and wait for user actions."
+);
+
+void loadConsoleHistory();
+connectTraceStream();
 void initializeTools();
+
+window.addEventListener("beforeunload", () => {
+  traceStream?.close();
+});
