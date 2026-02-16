@@ -6,7 +6,7 @@
  */
 type ToolName = "add" | "subtract" | "multiply" | "divide";
 type TraceLevel = "INFO" | "ERROR";
-type TraceComponent = "ui" | "client-backend" | "mcp-calculator-server" | "mcp-protocol";
+type TraceComponent = "ui" | "client-backend" | "mcp-calculator-server" | "mcp-protocol" | "openai";
 
 interface CalculateSuccessResponse {
   result      : number;
@@ -17,6 +17,7 @@ interface ApiErrorResponse {
   error    : string;
   details? : string;
 }
+
 
 interface ToolDefinition {
   name         : ToolName;
@@ -43,6 +44,18 @@ interface McpConsoleEventsResponse {
   events : McpConsoleEvent[];
 }
 
+interface ChatToolCall {
+  tool    : string;
+  args    : Record<string, unknown>;
+  result? : unknown;
+  error?  : string;
+}
+
+interface ChatResponse {
+  response  : string;
+  toolCalls : ChatToolCall[];
+}
+
 interface CalculatorState {
   currentInput          : string;
   firstOperand          : number | null;
@@ -63,7 +76,7 @@ function isTraceLevel(value: unknown): value is TraceLevel {
 }
 
 function isTraceComponent(value: unknown): value is TraceComponent {
-  return value === "ui" || value === "client-backend" || value === "mcp-calculator-server" || value === "mcp-protocol";
+  return value === "ui" || value === "client-backend" || value === "mcp-calculator-server" || value === "mcp-protocol" || value === "openai";
 }
 
 function isCalculateSuccessResponse(value: unknown): value is CalculateSuccessResponse {
@@ -77,6 +90,14 @@ function isCalculateSuccessResponse(value: unknown): value is CalculateSuccessRe
 
 function isApiErrorResponse(value: unknown): value is ApiErrorResponse {
   return isRecord(value) && typeof value.error === "string" && (value.details === undefined || typeof value.details === "string");
+}
+
+function isChatResponse(value: unknown): value is ChatResponse {
+  return (
+    isRecord(value) &&
+    typeof value.response === "string" &&
+    Array.isArray(value.toolCalls)
+  );
 }
 
 function isToolName(value: unknown): value is ToolName {
@@ -126,6 +147,8 @@ function componentLabel(component: TraceComponent): string {
       return "MCP Server";
     case "mcp-protocol":
       return "Protocol";
+    case "openai":
+      return "OpenAI";
     default:
       return "Unknown";
   }
@@ -143,13 +166,13 @@ function formatTime(isoTimestamp: string): string {
  * Capture all DOM dependencies once during bootstrap.
  * We aggressively type-check these nodes before use.
  */
-const displayElementRaw      = document.getElementById("display");
-const expressionElementRaw   = document.getElementById("expression-display");
-const statusElementRaw       = document.getElementById("status");
-const consoleListRaw         = document.getElementById("console-list");
-const consoleConnectionRaw   = document.getElementById("console-connection");
-const consoleClearRaw        = document.getElementById("console-clear");
-const buttonElements         = Array.from(document.querySelectorAll<HTMLButtonElement>(".btn"));
+const displayElementRaw          = document.getElementById("display");
+const expressionElementRaw       = document.getElementById("expression-display");
+const statusElementRaw           = document.getElementById("status");
+const consoleListRaw             = document.getElementById("console-list");
+const consoleConnectionRaw       = document.getElementById("console-connection");
+const consoleClearRaw            = document.getElementById("console-clear");
+const buttonElements             = Array.from(document.querySelectorAll<HTMLButtonElement>(".btn"));
 
 if (
   !(displayElementRaw instanceof HTMLElement) ||
@@ -162,19 +185,35 @@ if (
   throw new Error("Calculator UI did not initialize. Required DOM elements are missing.");
 }
 
-const displayElement      : HTMLElement     = displayElementRaw;
-const expressionElement   : HTMLElement     = expressionElementRaw;
-const statusElement       : HTMLElement     = statusElementRaw;
-const consoleListElement  : HTMLUListElement = consoleListRaw;
-const consoleConnectionElement: HTMLElement = consoleConnectionRaw;
-const consoleClearButton  : HTMLButtonElement = consoleClearRaw;
+const displayElement             : HTMLElement      = displayElementRaw;
+const expressionElement          : HTMLElement      = expressionElementRaw;
+const statusElement              : HTMLElement      = statusElementRaw;
+const consoleListElement         : HTMLUListElement  = consoleListRaw;
+const consoleConnectionElement   : HTMLElement      = consoleConnectionRaw;
+const consoleClearButton         : HTMLButtonElement = consoleClearRaw;
 
-const MAX_CONSOLE_ENTRIES  = 120;
-const UI_TRACE_OFFSET      = 1_000_000;
-const seenTraceIds         = new Set<number>();
-let uiTraceCounter         = 1;
-let streamState: "connecting" | "connected" | "disconnected" = "connecting";
-let traceStream: EventSource | null                           = null;
+const chatInputRaw               = document.getElementById("chat-input");
+const chatSendRaw                = document.getElementById("chat-send");
+const chatResponseRaw            = document.getElementById("chat-response");
+
+if (
+  !(chatInputRaw instanceof HTMLInputElement) ||
+  !(chatSendRaw instanceof HTMLButtonElement) ||
+  !(chatResponseRaw instanceof HTMLElement)
+) {
+  throw new Error("Chat panel DOM elements are missing.");
+}
+
+const chatInputElement           : HTMLInputElement  = chatInputRaw;
+const chatSendButton             : HTMLButtonElement = chatSendRaw;
+const chatResponseElement        : HTMLElement       = chatResponseRaw;
+
+const MAX_CONSOLE_ENTRIES    = 120;
+const UI_TRACE_OFFSET        = 1_000_000;
+const seenTraceIds           = new Set<number>();
+let uiTraceCounter           = 1;
+let streamState              : "connecting" | "connected" | "disconnected" = "connecting";
+let traceStream              : EventSource | null                          = null;
 
 const state: CalculatorState = {
   currentInput          : "0",
@@ -551,6 +590,107 @@ async function handleEquals(): Promise<void> {
     setLoading(false);
   }
 }
+
+let chatLoading = false;
+
+async function sendChatMessage(): Promise<void> {
+  const message = chatInputElement.value.trim();
+  if (!message || chatLoading) {
+    return;
+  }
+
+  chatLoading              = true;
+  chatSendButton.disabled  = true;
+  chatInputElement.disabled = true;
+  chatResponseElement.classList.remove("error");
+  chatResponseElement.classList.add("loading");
+  chatResponseElement.textContent = "Thinking...";
+
+  emitUiTrace(
+    "ui_chat_request_sent",
+    `UI -> Backend: POST /chat with "${message}".`,
+    "Message is sent to backend, which forwards it to OpenAI with MCP tool definitions."
+  );
+
+  try {
+    const response = await fetch("/chat", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ message })
+    });
+
+    let payload: unknown = null;
+    try {
+      payload = await response.json();
+    } catch {
+      throw new Error("Backend returned a non-JSON response.");
+    }
+
+    if (response.ok && isChatResponse(payload)) {
+      chatResponseElement.classList.remove("loading");
+      chatResponseElement.textContent = payload.response;
+
+      emitUiTrace(
+        "ui_chat_response_success",
+        `Backend -> UI: "${payload.response.slice(0, 80)}${payload.response.length > 80 ? "..." : ""}"`,
+        `OpenAI responded after ${String(payload.toolCalls.length)} tool call(s).`,
+        "INFO",
+        { toolCalls: payload.toolCalls }
+      );
+
+      // Sync last successful tool result to calculator display
+      const lastSuccess = [...payload.toolCalls].reverse().find(
+        (tc) => isRecord(tc.result) && (tc.result as Record<string, unknown>).ok === true
+      );
+      if (lastSuccess && isRecord(lastSuccess.result)) {
+        const result = (lastSuccess.result as Record<string, unknown>).result;
+        if (typeof result === "number" && Number.isFinite(result)) {
+          state.currentInput          = formatNumber(result);
+          state.firstOperand          = null;
+          state.pendingTool           = null;
+          state.pendingSymbol         = null;
+          state.awaitingSecondOperand = false;
+          state.expression            = "";
+          updateDisplay();
+        }
+      }
+
+      chatInputElement.value = "";
+    } else if (isApiErrorResponse(payload)) {
+      throw new Error(payload.details ? `${payload.error} ${payload.details}` : payload.error);
+    } else {
+      throw new Error("Unexpected response from backend.");
+    }
+  } catch (error: unknown) {
+    const errorMessage = error instanceof Error ? error.message : "Chat request failed.";
+    chatResponseElement.classList.remove("loading");
+    chatResponseElement.classList.add("error");
+    chatResponseElement.textContent = errorMessage;
+    emitUiTrace(
+      "ui_chat_request_failed",
+      "Chat request failed.",
+      "The error could be from OpenAI, MCP tool execution, or network issues.",
+      "ERROR",
+      { message: errorMessage }
+    );
+  } finally {
+    chatLoading              = false;
+    chatSendButton.disabled  = false;
+    chatInputElement.disabled = false;
+    chatInputElement.focus();
+  }
+}
+
+chatSendButton.addEventListener("click", () => {
+  void sendChatMessage();
+});
+
+chatInputElement.addEventListener("keydown", (event: KeyboardEvent) => {
+  if (event.key === "Enter") {
+    event.preventDefault();
+    void sendChatMessage();
+  }
+});
 
 function bindButtonHandlers(): void {
   /**

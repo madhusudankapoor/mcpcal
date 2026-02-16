@@ -39,6 +39,21 @@
           <button class="btn btn-zero" data-digit="0">0</button>
         </div>
 
+        <section class="chat-panel" aria-label="Chat with LLM">
+          <h2 class="chat-title">Ask Calculator</h2>
+          <p class="chat-subtitle">Powered by OpenAI function calling + MCP</p>
+          <div class="chat-input-wrap">
+            <input id="chat-input" class="chat-input" type="text" placeholder="Ask a math question..." maxlength="500" autocomplete="off" />
+            <button id="chat-send" class="chat-send" type="button">Send</button>
+          </div>
+          <div class="chat-response-wrap">
+            <span class="chat-response-label">Response</span>
+            <div id="chat-response" class="chat-response">
+              <p class="chat-placeholder">Answer will appear here</p>
+            </div>
+          </div>
+        </section>
+
         <section class="console-panel" aria-label="MCP learning console">
           <div class="console-header">
             <h2 class="console-title">MCP Learning Console</h2>

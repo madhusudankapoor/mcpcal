@@ -1,3 +1,4 @@
+import "dotenv/config";
 import path from "node:path";
 import type { Server as HttpServer } from "node:http";
 import { fileURLToPath } from "node:url";
@@ -5,13 +6,19 @@ import cors from "cors";
 import express, { type NextFunction, type Request, type Response } from "express";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
+import OpenAI from "openai";
+import type { ChatCompletionTool, ChatCompletionMessageParam } from "openai/resources/chat/completions";
 import {
   CalculateRequestSchema,
+  ChatRequestSchema,
   ToolNameSchema,
+  ToolArgsSchema,
   calculatorTools,
   toolInputSchema,
   type CalculateSuccessResponse,
   type CalculatorToolDefinition,
+  type ChatResponse,
+  type ChatToolCall,
   type ErrorResponse,
   type McpConsoleEvent,
   type McpConsoleEventsResponse,
@@ -30,6 +37,11 @@ const PORT                = Number(process.env.PORT ?? "3000");
 const __filename          = fileURLToPath(import.meta.url);
 const __dirname           = path.dirname(__filename);
 const TRACE_HISTORY_LIMIT = 200;
+
+/**
+ * OpenAI client — reads OPENAI_API_KEY from env automatically.
+ */
+const openai = new OpenAI();
 
 /**
  * SSE clients currently subscribed to /mcp-events/stream.
@@ -263,8 +275,51 @@ function describeTrace(
         };
       }
 
+      if (method === "POST" && route === "/chat") {
+        return {
+          level,
+          component: "openai",
+          event,
+          summary: "UI sent a chat message.",
+          explanation: "The backend will forward this to OpenAI with MCP tool definitions for function calling.",
+          data: payload
+        };
+      }
+
       return null;
     }
+
+    case "llm_request":
+      return {
+        level,
+        component: "openai",
+        event,
+        summary: "Sending request to OpenAI.",
+        explanation: "Backend sends user message + MCP tool definitions to the LLM for function-calling.",
+        data: payload
+      };
+
+    case "llm_tool_selection": {
+      const count = getNumber(payload, "count") ?? 0;
+      return {
+        level,
+        component: "openai",
+        event,
+        summary: `OpenAI selected ${String(count)} tool call(s).`,
+        explanation: "The LLM chose MCP tools to call based on the user's natural language request.",
+        data: payload
+      };
+    }
+
+    case "llm_response":
+      return {
+        level,
+        component: "openai",
+        event,
+        summary: "OpenAI returned final response.",
+        explanation: "After tool results were sent back, the LLM generated a natural language answer.",
+        data: payload
+      };
 
     default:
       return null;
@@ -423,6 +478,27 @@ function normalizeDiscoveredTools(rawTools: unknown): CalculatorToolDefinition[]
     .filter((tool): tool is CalculatorToolDefinition => tool !== null);
 }
 
+let discoveredTools: CalculatorToolDefinition[] = [];
+
+/**
+ * Maps discovered MCP tools into OpenAI function-calling format.
+ */
+function buildOpenAiFunctions(): ChatCompletionTool[] {
+  return discoveredTools.map((tool) => ({
+    type: "function" as const,
+    function: {
+      name: tool.name,
+      description: tool.description,
+      parameters: {
+        type: "object",
+        properties: tool.inputSchema.properties,
+        required: tool.inputSchema.required,
+        additionalProperties: false
+      }
+    }
+  }));
+}
+
 /**
  * ---------------------------------------------------------------------------
  * Express app setup + MCP client setup
@@ -450,8 +526,6 @@ app.use((req: Request, res: Response, next: NextFunction) => {
 
   next();
 });
-
-let discoveredTools: CalculatorToolDefinition[] = [];
 
 const mcpServerEntry = process.env.MCP_SERVER_ENTRY
   ? path.resolve(process.cwd(), process.env.MCP_SERVER_ENTRY)
@@ -720,6 +794,176 @@ app.post(
   }
 );
 
+/**
+ * Chat endpoint: forwards natural language to OpenAI with MCP tool definitions.
+ */
+app.post(
+  "/chat",
+  async (
+    req: Request,
+    res: Response<ChatResponse | ErrorResponse>,
+    next: NextFunction
+  ): Promise<void> => {
+    const validation = ChatRequestSchema.safeParse(req.body);
+    if (!validation.success) {
+      log("ERROR", "request_validation_failed", {
+        route: "/chat",
+        issues: validation.error.flatten()
+      });
+      res.status(400).json({
+        error: "Invalid chat request.",
+        details: validation.error.message
+      });
+      return;
+    }
+
+    const { message } = validation.data;
+    const tools = buildOpenAiFunctions();
+    const chatToolCalls: ChatToolCall[] = [];
+
+    try {
+      log("INFO", "llm_request", { message, toolCount: tools.length });
+
+      const messages: ChatCompletionMessageParam[] = [
+        {
+          role: "system",
+          content:
+            "You are a calculator assistant. Use the provided tools to perform arithmetic. " +
+            "If the user asks something that is not a math operation, politely explain that you can only help with calculations."
+        },
+        { role: "user", content: message }
+      ];
+
+      /**
+       * First OpenAI call: send user message + tool definitions.
+       */
+      const firstResponse = await openai.chat.completions.create({
+        model: "gpt-4o-mini",
+        messages,
+        tools: tools.length > 0 ? tools : undefined
+      });
+
+      const choice = firstResponse.choices[0];
+      if (!choice) {
+        res.status(502).json({ error: "OpenAI returned no choices." });
+        return;
+      }
+
+      /**
+       * If no tool calls, return the LLM response directly.
+       */
+      if (!choice.message.tool_calls || choice.message.tool_calls.length === 0) {
+        log("INFO", "llm_response", { hasToolCalls: false });
+        res.json({
+          response: choice.message.content ?? "I could not generate a response.",
+          toolCalls: []
+        });
+        return;
+      }
+
+      const functionCalls = choice.message.tool_calls.filter(
+        (tc): tc is Extract<typeof tc, { type: "function" }> => tc.type === "function"
+      );
+
+      log("INFO", "llm_tool_selection", {
+        count: functionCalls.length,
+        tools: functionCalls.map((tc) => tc.function.name)
+      });
+
+      /**
+       * Execute each tool call via MCP.
+       */
+      messages.push(choice.message);
+
+      for (const toolCall of functionCalls) {
+        const fnName = toolCall.function.name;
+        let fnArgs: Record<string, unknown>;
+
+        try {
+          fnArgs = JSON.parse(toolCall.function.arguments) as Record<string, unknown>;
+        } catch {
+          const errorMsg = "Failed to parse tool arguments.";
+          chatToolCalls.push({ tool: fnName, args: {}, error: errorMsg });
+          messages.push({
+            role: "tool",
+            tool_call_id: toolCall.id,
+            content: JSON.stringify({ ok: false, error: errorMsg })
+          });
+          continue;
+        }
+
+        const nameResult = ToolNameSchema.safeParse(fnName);
+        const argsResult = ToolArgsSchema.safeParse(fnArgs);
+
+        if (!nameResult.success || !argsResult.success) {
+          const errorMsg = "Invalid tool name or arguments.";
+          chatToolCalls.push({ tool: fnName, args: fnArgs, error: errorMsg });
+          messages.push({
+            role: "tool",
+            tool_call_id: toolCall.id,
+            content: JSON.stringify({ ok: false, error: errorMsg })
+          });
+          continue;
+        }
+
+        log("INFO", "mcp_phase_3_tool_execution_started", {
+          tool: nameResult.data,
+          args: argsResult.data
+        });
+
+        const rawToolResponse = await mcpClient.callTool({
+          name: nameResult.data,
+          arguments: argsResult.data
+        });
+
+        const parsedPayload = parseToolPayload(rawToolResponse);
+
+        if (parsedPayload) {
+          chatToolCalls.push({ tool: fnName, args: fnArgs, result: parsedPayload });
+          messages.push({
+            role: "tool",
+            tool_call_id: toolCall.id,
+            content: JSON.stringify(parsedPayload)
+          });
+        } else {
+          const errorMsg = "Failed to parse MCP tool response.";
+          chatToolCalls.push({ tool: fnName, args: fnArgs, error: errorMsg });
+          messages.push({
+            role: "tool",
+            tool_call_id: toolCall.id,
+            content: JSON.stringify({ ok: false, error: errorMsg })
+          });
+        }
+
+        log("INFO", "mcp_phase_3_tool_execution_response", {
+          tool: fnName,
+          isError: !parsedPayload || !parsedPayload.ok
+        });
+      }
+
+      /**
+       * Second OpenAI call: send tool results back for a natural language answer.
+       */
+      const secondResponse = await openai.chat.completions.create({
+        model: "gpt-4o-mini",
+        messages
+      });
+
+      const finalChoice = secondResponse.choices[0];
+      const responseText = finalChoice?.message.content ?? "I could not generate a response.";
+
+      log("INFO", "llm_response", { hasToolCalls: true, toolCallCount: chatToolCalls.length });
+
+      res.json({
+        response: responseText,
+        toolCalls: chatToolCalls
+      });
+    } catch (error: unknown) {
+      next(error);
+    }
+  }
+);
+
 app.get("/", (_req: Request, res: Response) => {
   res.sendFile(path.join(publicDir, "index.html"));
 });
@@ -793,6 +1037,12 @@ async function shutdown(signal: string): Promise<void> {
       details: error instanceof Error ? error.message : String(error)
     });
   }
+
+  // End all SSE connections so httpServer.close() can drain.
+  for (const client of traceClients) {
+    client.end();
+  }
+  traceClients.clear();
 
   if (!httpServer) {
     process.exit(0);

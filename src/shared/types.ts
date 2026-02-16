@@ -138,9 +138,9 @@ export interface ToolExecutionSuccessPayload {
  * Typed payload encoded into MCP tool response text for failure.
  */
 export interface ToolExecutionErrorPayload {
-  ok      : false;
-  error   : string;
-  details?: string;
+  ok       : false;
+  error    : string;
+  details? : string;
 }
 
 export type ToolExecutionPayload = ToolExecutionSuccessPayload | ToolExecutionErrorPayload;
@@ -153,7 +153,7 @@ export type TraceLevel = "INFO" | "ERROR";
 /**
  * Learning-console source components.
  */
-export type TraceComponent = "ui" | "client-backend" | "mcp-calculator-server" | "mcp-protocol";
+export type TraceComponent = "ui" | "client-backend" | "mcp-calculator-server" | "mcp-protocol" | "openai";
 
 /**
  * One explanatory trace line rendered in the UI learning console.
@@ -174,4 +174,31 @@ export interface McpConsoleEvent {
  */
 export interface McpConsoleEventsResponse {
   events : McpConsoleEvent[];
+}
+
+/**
+ * One tool call made by the LLM during a chat interaction.
+ */
+export interface ChatToolCall {
+  tool    : string;
+  args    : Record<string, unknown>;
+  result? : unknown;
+  error?  : string;
+}
+
+/**
+ * Runtime-safe validator for POST /chat request body.
+ */
+export const ChatRequestSchema = z.object({
+  message: z.string().min(1).max(500)
+});
+
+export type ChatRequest = z.infer<typeof ChatRequestSchema>;
+
+/**
+ * Browser-facing response for POST /chat.
+ */
+export interface ChatResponse {
+  response  : string;
+  toolCalls : ChatToolCall[];
 }
