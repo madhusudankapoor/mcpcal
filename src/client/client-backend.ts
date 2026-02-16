@@ -512,6 +512,12 @@ app.use(express.json());
  * Request timing logger. We keep this middleware high in stack so all routes are visible.
  */
 app.use((req: Request, res: Response, next: NextFunction) => {
+  // Skip logging for health-check probes to avoid console noise.
+  if (req.path === "/healthz") {
+    next();
+    return;
+  }
+
   const start = Date.now();
   log("INFO", "http_request_started", { method: req.method, path: req.path });
 
@@ -652,6 +658,13 @@ app.use(express.static(publicDir));
  * Core API routes
  * ---------------------------------------------------------------------------
  */
+
+/**
+ * Lightweight health probe for Render (or any orchestrator).
+ */
+app.get("/healthz", (_req: Request, res: Response) => {
+  res.json({ status: "ok" });
+});
 
 /**
  * Exposes currently discovered tools to the browser.
