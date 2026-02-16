@@ -829,6 +829,7 @@ app.post(
           role: "system",
           content:
             "You are a calculator assistant. Use the provided tools to perform arithmetic. " +
+            "Always respond in plain text without any LaTeX, markdown, or special formatting. " +
             "If the user asks something that is not a math operation, politely explain that you can only help with calculations."
         },
         { role: "user", content: message }
