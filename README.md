@@ -1,13 +1,65 @@
 # MCP Calculator (TypeScript)
 
-This project is a fully working calculator built to demonstrate MCP (Model Context Protocol) as a client-server RPC layer, extended with OpenAI LLM integration to show the standard MCP flow: `LLM -> MCP Client -> MCP Server -> tools`.
+A beginner-friendly project to learn **Model Context Protocol (MCP)** with real code.
 
-It intentionally uses a simple domain (calculator math) so you can focus on protocol flow:
-- MCP handshake
-- tool discovery
-- remote tool execution
-- typed error propagation
-- LLM-driven tool selection via OpenAI function calling
+This app supports two user paths using the same MCP tools:
+
+1. Button calculator (`/calculate`)
+2. Natural language chat (`/chat`) with OpenAI function calling
+
+## Quick Start
+
+1. Open terminal in your project root (folder name can be anything): `.../mcp-calculator`
+2. Install + build:
+   ```bash
+   npm install
+   npm run build
+   ```
+3. Add OpenAI key (for chat):
+   ```bash
+   echo 'OPENAI_API_KEY=sk-...' > .env
+   ```
+4. Start backend (it auto-starts MCP server):
+   ```bash
+   npm run start:client
+   ```
+5. Open [http://localhost:3000](http://localhost:3000), try `5 + 3 =`, OR just ask in the chat: `what is 12 times 7?`
+
+What you learn in this demo:
+- MCP handshake + tool discovery (`listTools`)
+- MCP remote execution (`callTool`)
+- OpenAI chooses tools, backend executes tools
+- typed validation and errors across UI -> backend -> MCP
+
+## Core MCP Concepts In This Project
+
+This codebase demonstrates the most important MCP ideas:
+
+1. **MCP server** exposes tools (`add`, `subtract`, `multiply`, `divide`).
+2. **MCP client** (Express backend) connects over stdio.
+3. **Handshake** completes before serving requests.
+4. **Tool discovery** happens with `listTools()` on startup.
+5. **Tool execution** happens with `callTool(name, args)`.
+6. **Stateless server design**: UI stores interaction state, MCP server does pure compute.
+7. **Runtime validation** with Zod for HTTP, tool args, and response parsing.
+8. **Typed error propagation** from MCP server -> backend -> UI.
+
+## Project Components
+
+1. **MCP Server** (`src/server/calculator-server.ts`)
+2. **Express Backend + MCP Client + OpenAI Orchestrator** (`src/client/client-backend.ts`)
+3. **Web UI (calculator + chat + learning console)** (`src/client/ui/app.ts`)
+4. **Shared contracts and schemas** (`src/shared/types.ts`)
+
+## MCP Lifecycle (How Requests Work)
+
+### Phase 1: Startup / Handshake
+
+1. Backend starts.
+2. Backend opens `StdioClientTransport`.
+3. MCP server process is spawned.
+4. `mcpClient.connect(...)` performs handshake and capability negotiation.
+
 
 ## Project Structure
 
@@ -130,8 +182,8 @@ OpenAI is like a **brain that can't move its hands**. It can look at a menu of t
 ┌─────────────────────────────────────────────────────────────────┐
 │                        YOUR MACHINE                             │
 │                                                                 │
-│  ┌─────────────┐     HTTP      ┌──────────────────────────┐    │
-│  │  Browser UI  │ ──────────── │  Express Backend          │    │
+│  ┌─────────────┐     HTTP      ┌───────────────────────────┐    │
+│  │  Browser UI │ ────────────> │  Express Backend          │    │
 │  │             │               │  (client-backend.ts)      │    │
 │  │ Calculator  │  POST /chat   │                           │    │
 │  │ buttons     │ ────────────> │  1. Receives user message │    │
@@ -145,9 +197,9 @@ OpenAI is like a **brain that can't move its hands**. It can look at a menu of t
 │                                       │          │              │
 │                                       ▼          │              │
 │                              ┌──────────────┐    │              │
-│                              │  MCP Server   │    │              │
-│                              │  (separate    │    │              │
-│                              │   process)    │    │              │
+│                              │  MCP Server  │    │              │
+│                              │  (separate   │    │              │
+│                              │   process)   │    │              │
 │                              │              │    │              │
 │                              │  Tools:      │    │              │
 │                              │  - add       │    │              │
@@ -159,7 +211,7 @@ OpenAI is like a **brain that can't move its hands**. It can look at a menu of t
 └──────────────────────────────────────────────────┼──────────────┘
                                                    │
                                                    ▼
-                                          ┌──────────────┐
+                                          ┌───────────────┐
                                           │  OpenAI API   │
                                           │  (cloud)      │
                                           │               │
@@ -174,7 +226,7 @@ OpenAI is like a **brain that can't move its hands**. It can look at a menu of t
                                           │    to call    │
                                           │  - or a text  │
                                           │    response   │
-                                          └──────────────┘
+                                          └───────────────┘
 ```
 
 **Key insight:** The backend is the **orchestrator**. It sits in the middle and coordinates between three things:
@@ -213,17 +265,17 @@ Step 2: Backend tells OpenAI about available tools
     │   - divide(a, b): Divide                 │
     │                                          │
     │   User asks: What is 15 plus 27?"        │
-    │ ──────────────────────────────────────>   │
+    │ ─────────────────────────────────────>   │
     │                                          │
-    │          (OpenAI thinks...)               │
-    │          "15 plus 27 = addition!"         │
-    │          "I'll pick the add tool"         │
+    │          (OpenAI thinks...)              │
+    │          "15 plus 27 = addition!"        │
+    │          "I'll pick the add tool"        │
     │                                          │
     │  tool_calls: [{                          │
     │    name: "add",                          │
     │    arguments: { a: 15, b: 27 }           │
     │  }]                                      │
-    │ <────────────────────────────────────── │
+    │ <──────────────────────────────────────  │
     │                                          │
 
   NOTE: OpenAI does NOT execute "add".
@@ -254,10 +306,10 @@ Step 4: Backend sends result back to OpenAI
     │                                          │
     │  "The add tool returned: 42.             │
     │   Now give the user a friendly answer."  │
-    │ ──────────────────────────────────────>   │
+    │ ──────────────────────────────────────>  │
     │                                          │
     │  "15 plus 27 equals 42."                 │
-    │ <──────────────────────────────────────   │
+    │ <──────────────────────────────────────  │
     │                                          │
 
 
@@ -534,36 +586,6 @@ The MCP server remains stateless by design:
 
 The chat endpoint is also single-turn (no conversation history), keeping the same stateless philosophy.
 
-## Sample Logs
-
-### Client Backend
-
-```text
-{"level":"INFO","component":"client-backend","event":"mcp_phase_1_initialization_started", ...}
-{"level":"INFO","component":"client-backend","event":"mcp_phase_1_handshake_complete", ...}
-{"level":"INFO","component":"client-backend","event":"mcp_phase_2_discovery_complete","toolCount":4,...}
-{"level":"INFO","component":"client-backend","event":"mcp_phase_3_tool_execution_started","tool":"add","args":{"a":5,"b":3}}
-{"level":"INFO","component":"client-backend","event":"llm_request","message":"what is 5 plus 3?","toolCount":4}
-{"level":"INFO","component":"client-backend","event":"llm_tool_selection","count":1,"tools":["add"]}
-{"level":"INFO","component":"client-backend","event":"llm_response","hasToolCalls":true,"toolCallCount":1}
-```
-
-### MCP Server (stderr)
-
-```text
-{"level":"INFO","component":"mcp-calculator-server","event":"startup_begin", ...}
-{"level":"INFO","component":"mcp-calculator-server","event":"tools_list_requested","toolCount":4}
-{"level":"INFO","component":"mcp-calculator-server","event":"tool_call_succeeded","tool":"add","a":5,"b":3,"result":8}
-```
-
-### UI (browser console)
-
-```text
-[ui] calculate_request { tool: "add", args: { a: 5, b: 3 } }
-[ui] calculate_response_success { result: 8, expression: "5 + 3" }
-[ui] ui_chat_request_sent { message: "what is 5 plus 3?" }
-[ui] ui_chat_response_success { toolCalls: [...] }
-```
 
 ## Verification Checklist
 
