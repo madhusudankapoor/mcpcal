@@ -21,36 +21,76 @@ import {
 
 type LogLevel = "INFO" | "ERROR";
 
-const PORT = Number(process.env.PORT ?? "3000");
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
+/**
+ * ---------------------------------------------------------------------------
+ * Runtime constants and process-level state
+ * ---------------------------------------------------------------------------
+ */
+const PORT                = Number(process.env.PORT ?? "3000");
+const __filename          = fileURLToPath(import.meta.url);
+const __dirname           = path.dirname(__filename);
 const TRACE_HISTORY_LIMIT = 200;
 
+/**
+ * SSE clients currently subscribed to /mcp-events/stream.
+ */
 const traceClients = new Set<Response>();
-const traceHistory: McpConsoleEvent[] = [];
-let traceSequence = 1;
 
+/**
+ * In-memory rolling trace history shown in the MCP learning console.
+ */
+const traceHistory: McpConsoleEvent[] = [];
+let traceSequence                      = 1;
+
+/**
+ * ---------------------------------------------------------------------------
+ * Generic runtime helpers
+ * ---------------------------------------------------------------------------
+ */
+
+/**
+ * Runtime object check used before property access on unknown payloads.
+ */
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null;
 }
 
+/**
+ * Safe string extraction from generic object payloads.
+ */
 function getString(payload: Record<string, unknown>, key: string): string | undefined {
   const value = payload[key];
   return typeof value === "string" ? value : undefined;
 }
 
+/**
+ * Safe number extraction from generic object payloads.
+ */
 function getNumber(payload: Record<string, unknown>, key: string): number | undefined {
   const value = payload[key];
   return typeof value === "number" ? value : undefined;
 }
 
+/**
+ * Safe boolean extraction from generic object payloads.
+ */
 function getBoolean(payload: Record<string, unknown>, key: string): boolean | undefined {
   const value = payload[key];
   return typeof value === "boolean" ? value : undefined;
 }
 
+/**
+ * ---------------------------------------------------------------------------
+ * MCP learning-console trace stream helpers
+ * ---------------------------------------------------------------------------
+ */
+
+/**
+ * Sends one SSE trace frame to all connected browsers.
+ */
 function writeTraceToClients(trace: McpConsoleEvent): void {
   const frame = `event: trace\ndata: ${JSON.stringify(trace)}\n\n`;
+
   for (const client of traceClients) {
     try {
       client.write(frame);
@@ -60,21 +100,34 @@ function writeTraceToClients(trace: McpConsoleEvent): void {
   }
 }
 
+/**
+ * Adds a trace item to memory history and broadcasts it to live subscribers.
+ */
 function publishTrace(trace: Omit<McpConsoleEvent, "id" | "ts">): void {
   const nextTrace: McpConsoleEvent = {
     id: traceSequence,
     ts: new Date().toISOString(),
     ...trace
   };
+
   traceSequence += 1;
   traceHistory.push(nextTrace);
+
   if (traceHistory.length > TRACE_HISTORY_LIMIT) {
     traceHistory.shift();
   }
+
   writeTraceToClients(nextTrace);
 }
 
-function describeTrace(level: LogLevel, event: string, payload: Record<string, unknown>): Omit<McpConsoleEvent, "id" | "ts"> | null {
+/**
+ * Converts backend machine events into user-facing learning explanations.
+ */
+function describeTrace(
+  level: LogLevel,
+  event: string,
+  payload: Record<string, unknown>
+): Omit<McpConsoleEvent, "id" | "ts"> | null {
   switch (event) {
     case "mcp_phase_1_initialization_started":
       return {
@@ -85,6 +138,7 @@ function describeTrace(level: LogLevel, event: string, payload: Record<string, u
         explanation: "The backend spawns the MCP server process and opens stdio transport for RPC.",
         data: payload
       };
+
     case "mcp_phase_1_handshake_complete":
       return {
         level,
@@ -94,6 +148,7 @@ function describeTrace(level: LogLevel, event: string, payload: Record<string, u
         explanation: "Client and server agreed on protocol capabilities, so tool calls can now be sent.",
         data: payload
       };
+
     case "mcp_phase_2_discovery_started":
       return {
         level,
@@ -103,6 +158,7 @@ function describeTrace(level: LogLevel, event: string, payload: Record<string, u
         explanation: "Backend calls listTools() so the UI can enable only supported operations.",
         data: payload
       };
+
     case "mcp_phase_2_discovery_complete":
       return {
         level,
@@ -112,11 +168,13 @@ function describeTrace(level: LogLevel, event: string, payload: Record<string, u
         explanation: "Tool definitions include JSON Schema, so clients know exactly what arguments to send.",
         data: payload
       };
+
     case "mcp_phase_3_tool_execution_started": {
       const tool = getString(payload, "tool") ?? "unknown";
       const args = isRecord(payload.args) ? payload.args : {};
-      const a = typeof args.a === "number" ? args.a : "?";
-      const b = typeof args.b === "number" ? args.b : "?";
+      const a    = typeof args.a === "number" ? args.a : "?";
+      const b    = typeof args.b === "number" ? args.b : "?";
+
       return {
         level,
         component: "client-backend",
@@ -126,6 +184,7 @@ function describeTrace(level: LogLevel, event: string, payload: Record<string, u
         data: payload
       };
     }
+
     case "mcp_phase_3_tool_execution_response": {
       const isError = getBoolean(payload, "isError") === true;
       return {
@@ -137,6 +196,7 @@ function describeTrace(level: LogLevel, event: string, payload: Record<string, u
         data: payload
       };
     }
+
     case "request_validation_failed":
       return {
         level,
@@ -146,6 +206,7 @@ function describeTrace(level: LogLevel, event: string, payload: Record<string, u
         explanation: "Zod blocked invalid request data at runtime, preventing bad RPC messages.",
         data: payload
       };
+
     case "http_server_ready":
       return {
         level,
@@ -155,6 +216,7 @@ function describeTrace(level: LogLevel, event: string, payload: Record<string, u
         explanation: "Web UI can now load and call /tools, /calculate, and /mcp-events/stream.",
         data: payload
       };
+
     case "unhandled_backend_error":
       return {
         level,
@@ -164,6 +226,7 @@ function describeTrace(level: LogLevel, event: string, payload: Record<string, u
         explanation: "Error middleware caught the failure and returned a typed error response.",
         data: payload
       };
+
     case "startup_failed":
       return {
         level,
@@ -173,9 +236,11 @@ function describeTrace(level: LogLevel, event: string, payload: Record<string, u
         explanation: "Initialization could not complete, so the server process exits safely.",
         data: payload
       };
+
     case "http_request_started": {
       const method = getString(payload, "method");
-      const route = getString(payload, "path");
+      const route  = getString(payload, "path");
+
       if (method === "GET" && route === "/tools") {
         return {
           level,
@@ -186,6 +251,7 @@ function describeTrace(level: LogLevel, event: string, payload: Record<string, u
           data: payload
         };
       }
+
       if (method === "POST" && route === "/calculate") {
         return {
           level,
@@ -196,13 +262,18 @@ function describeTrace(level: LogLevel, event: string, payload: Record<string, u
           data: payload
         };
       }
+
       return null;
     }
+
     default:
       return null;
   }
 }
 
+/**
+ * Structured backend logger + learning-trace publisher.
+ */
 function log(level: LogLevel, event: string, payload: Record<string, unknown> = {}): void {
   console.log(
     JSON.stringify({
@@ -220,6 +291,15 @@ function log(level: LogLevel, event: string, payload: Record<string, unknown> = 
   }
 }
 
+/**
+ * ---------------------------------------------------------------------------
+ * MCP/HTTP payload shape guards
+ * ---------------------------------------------------------------------------
+ */
+
+/**
+ * Validates parsed MCP text payload shape ({ok:true}|{ok:false}).
+ */
 function isToolExecutionPayload(value: unknown): value is ToolExecutionPayload {
   if (!isRecord(value) || typeof value.ok !== "boolean") {
     return false;
@@ -232,6 +312,9 @@ function isToolExecutionPayload(value: unknown): value is ToolExecutionPayload {
   return typeof value.error === "string" && (value.details === undefined || typeof value.details === "string");
 }
 
+/**
+ * Defensive validator for tool input schemas discovered from MCP listTools().
+ */
 function isCalculatorInputSchema(value: unknown): value is CalculatorToolDefinition["inputSchema"] {
   if (!isRecord(value)) {
     return false;
@@ -254,6 +337,9 @@ function isCalculatorInputSchema(value: unknown): value is CalculatorToolDefinit
   return isRecord(a) && isRecord(b) && a.type === "number" && b.type === "number";
 }
 
+/**
+ * Pulls first text content block from MCP callTool() response.
+ */
 function extractPayloadText(rawResponse: unknown): string | null {
   if (!isRecord(rawResponse) || !Array.isArray(rawResponse.content)) {
     return null;
@@ -270,6 +356,9 @@ function extractPayloadText(rawResponse: unknown): string | null {
   return textItem.text as string;
 }
 
+/**
+ * Parses and validates tool payload embedded by the MCP server.
+ */
 function parseToolPayload(rawResponse: unknown): ToolExecutionPayload | null {
   const text = extractPayloadText(rawResponse);
   if (!text) {
@@ -284,6 +373,9 @@ function parseToolPayload(rawResponse: unknown): ToolExecutionPayload | null {
   }
 }
 
+/**
+ * Maps tool names to symbols for user expression display.
+ */
 function operatorForTool(tool: ToolName): string {
   switch (tool) {
     case "add":
@@ -299,6 +391,9 @@ function operatorForTool(tool: ToolName): string {
   }
 }
 
+/**
+ * Normalizes listTools() response to our strict shared type.
+ */
 function normalizeDiscoveredTools(rawTools: unknown): CalculatorToolDefinition[] {
   if (!Array.isArray(rawTools)) {
     return [];
@@ -328,13 +423,22 @@ function normalizeDiscoveredTools(rawTools: unknown): CalculatorToolDefinition[]
     .filter((tool): tool is CalculatorToolDefinition => tool !== null);
 }
 
+/**
+ * ---------------------------------------------------------------------------
+ * Express app setup + MCP client setup
+ * ---------------------------------------------------------------------------
+ */
 const app = express();
 app.use(cors());
 app.use(express.json());
 
+/**
+ * Request timing logger. We keep this middleware high in stack so all routes are visible.
+ */
 app.use((req: Request, res: Response, next: NextFunction) => {
   const start = Date.now();
   log("INFO", "http_request_started", { method: req.method, path: req.path });
+
   res.on("finish", () => {
     log("INFO", "http_request_finished", {
       method: req.method,
@@ -343,6 +447,7 @@ app.use((req: Request, res: Response, next: NextFunction) => {
       durationMs: Date.now() - start
     });
   });
+
   next();
 });
 
@@ -367,6 +472,9 @@ const mcpClient = new Client(
   }
 );
 
+/**
+ * Performs Phase 1 + Phase 2 MCP startup sequence.
+ */
 async function initializeMcp(): Promise<void> {
   publishTrace({
     level: "INFO",
@@ -408,29 +516,47 @@ async function initializeMcp(): Promise<void> {
   });
 
   const discoveryResponse = await mcpClient.listTools();
-  discoveredTools = normalizeDiscoveredTools(discoveryResponse.tools);
+  discoveredTools         = normalizeDiscoveredTools(discoveryResponse.tools);
+
   log("INFO", "mcp_phase_2_discovery_complete", {
     toolCount: discoveredTools.length,
     tools: discoveredTools.map((tool) => tool.name)
   });
 }
 
+/**
+ * ---------------------------------------------------------------------------
+ * Learning-console endpoints
+ * ---------------------------------------------------------------------------
+ */
+
+/**
+ * Returns current trace history snapshot.
+ */
 app.get("/mcp-events", (_req: Request, res: Response<McpConsoleEventsResponse>) => {
   res.json({ events: traceHistory });
 });
 
+/**
+ * Streams trace events live via Server-Sent Events (SSE).
+ */
 app.get("/mcp-events/stream", (req: Request, res: Response) => {
   res.setHeader("Content-Type", "text/event-stream");
   res.setHeader("Cache-Control", "no-cache");
   res.setHeader("Connection", "keep-alive");
   res.flushHeaders();
+
+  // Ask browser EventSource to retry quickly if connection drops.
   res.write("retry: 1200\n\n");
 
+  // Send history first so new subscribers get startup context immediately.
   for (const trace of traceHistory) {
     res.write(`event: trace\ndata: ${JSON.stringify(trace)}\n\n`);
   }
 
   traceClients.add(res);
+
+  // Keep stream alive through proxies/load balancers.
   const keepAlive = setInterval(() => {
     res.write(": ping\n\n");
   }, 20_000);
@@ -441,14 +567,29 @@ app.get("/mcp-events/stream", (req: Request, res: Response) => {
   });
 });
 
+/**
+ * Static assets must be mounted after JSON/SSE routes setup.
+ */
 const publicDir = path.resolve(__dirname, "../../public");
 app.use(express.static(publicDir));
 
+/**
+ * ---------------------------------------------------------------------------
+ * Core API routes
+ * ---------------------------------------------------------------------------
+ */
+
+/**
+ * Exposes currently discovered tools to the browser.
+ */
 app.get("/tools", (_req: Request, res: Response) => {
   const response = { tools: discoveredTools };
   res.json(response);
 });
 
+/**
+ * Executes calculator operation via MCP callTool().
+ */
 app.post(
   "/calculate",
   async (
@@ -456,12 +597,16 @@ app.post(
     res: Response<CalculateSuccessResponse | ErrorResponse>,
     next: NextFunction
   ): Promise<void> => {
+    /**
+     * Step 1: HTTP runtime validation.
+     */
     const validation = CalculateRequestSchema.safeParse(req.body);
     if (!validation.success) {
       log("ERROR", "request_validation_failed", {
         route: "/calculate",
         issues: validation.error.flatten()
       });
+
       res.status(400).json({
         error: "Invalid request payload.",
         details: validation.error.message
@@ -470,6 +615,7 @@ app.post(
     }
 
     const requestBody = validation.data;
+
     log("INFO", "mcp_phase_3_tool_execution_started", {
       tool: requestBody.tool,
       args: requestBody.args
@@ -488,6 +634,9 @@ app.post(
     });
 
     try {
+      /**
+       * Step 2: MCP RPC call.
+       */
       const rawToolResponse = await mcpClient.callTool({
         name: requestBody.tool,
         arguments: requestBody.args
@@ -499,6 +648,9 @@ app.post(
         isError: isErrorResponse
       });
 
+      /**
+       * Step 3: Parse typed payload encoded by MCP server.
+       */
       const parsedPayload = parseToolPayload(rawToolResponse);
       if (!parsedPayload) {
         publishTrace({
@@ -509,6 +661,7 @@ app.post(
           explanation: "Expected a text content block containing JSON with either {ok:true} or {ok:false}.",
           data: { tool: requestBody.tool }
         });
+
         res.status(502).json({
           error: "Invalid response from MCP server.",
           details: "Expected JSON text payload with tool result."
@@ -516,6 +669,9 @@ app.post(
         return;
       }
 
+      /**
+       * Step 4a: Propagate typed MCP error to UI.
+       */
       if (!parsedPayload.ok) {
         publishTrace({
           level: "ERROR",
@@ -529,6 +685,7 @@ app.post(
             details: parsedPayload.details
           }
         });
+
         res.status(400).json({
           error: parsedPayload.error,
           details: parsedPayload.details
@@ -536,6 +693,9 @@ app.post(
         return;
       }
 
+      /**
+       * Step 4b: Convert typed MCP success into UI-friendly response.
+       */
       publishTrace({
         level: "INFO",
         component: "mcp-calculator-server",
@@ -549,6 +709,7 @@ app.post(
       });
 
       const expression = `${requestBody.args.a} ${operatorForTool(requestBody.tool)} ${requestBody.args.b}`;
+
       res.json({
         result: parsedPayload.result,
         expression
@@ -563,20 +724,30 @@ app.get("/", (_req: Request, res: Response) => {
   res.sendFile(path.join(publicDir, "index.html"));
 });
 
+/**
+ * Centralized error-to-JSON mapper for unhandled backend failures.
+ */
 app.use((error: unknown, _req: Request, res: Response<ErrorResponse>, _next: NextFunction) => {
   const details = error instanceof Error ? error.stack ?? error.message : String(error);
   log("ERROR", "unhandled_backend_error", { details });
+
   res.status(500).json({
     error: "Internal server error.",
     details: error instanceof Error ? error.message : String(error)
   });
 });
 
+/**
+ * ---------------------------------------------------------------------------
+ * Process lifecycle (startup + graceful shutdown)
+ * ---------------------------------------------------------------------------
+ */
 let httpServer: HttpServer | null = null;
 
 async function start(): Promise<void> {
   try {
     await initializeMcp();
+
     httpServer = app.listen(PORT, () => {
       log("INFO", "http_server_ready", { port: PORT });
     });
@@ -590,10 +761,18 @@ async function start(): Promise<void> {
 void start();
 
 let shuttingDown = false;
+
+/**
+ * Closes resources in a safe order:
+ * 1) MCP client session
+ * 2) stdio transport
+ * 3) HTTP server
+ */
 async function shutdown(signal: string): Promise<void> {
   if (shuttingDown) {
     return;
   }
+
   shuttingDown = true;
   log("INFO", "shutdown_started", { signal });
 

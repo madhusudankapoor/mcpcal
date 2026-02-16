@@ -1,51 +1,57 @@
+/**
+ * UI-side tool and trace types.
+ *
+ * These mirror backend/shared contracts so the browser can validate responses
+ * at runtime and explain the MCP flow with typed confidence.
+ */
 type ToolName = "add" | "subtract" | "multiply" | "divide";
 type TraceLevel = "INFO" | "ERROR";
 type TraceComponent = "ui" | "client-backend" | "mcp-calculator-server" | "mcp-protocol";
 
 interface CalculateSuccessResponse {
-  result: number;
-  expression: string;
+  result      : number;
+  expression  : string;
 }
 
 interface ApiErrorResponse {
-  error: string;
-  details?: string;
+  error    : string;
+  details? : string;
 }
 
 interface ToolDefinition {
-  name: ToolName;
-  description: string;
-  inputSchema: object;
+  name         : ToolName;
+  description  : string;
+  inputSchema  : object;
 }
 
 interface ToolsResponse {
-  tools: ToolDefinition[];
+  tools : ToolDefinition[];
 }
 
 interface McpConsoleEvent {
-  id: number;
-  ts: string;
-  level: TraceLevel;
-  component: TraceComponent;
-  event: string;
-  summary: string;
-  explanation: string;
-  data?: Record<string, unknown>;
+  id           : number;
+  ts           : string;
+  level        : TraceLevel;
+  component    : TraceComponent;
+  event        : string;
+  summary      : string;
+  explanation  : string;
+  data?        : Record<string, unknown>;
 }
 
 interface McpConsoleEventsResponse {
-  events: McpConsoleEvent[];
+  events : McpConsoleEvent[];
 }
 
 interface CalculatorState {
-  currentInput: string;
-  firstOperand: number | null;
-  pendingTool: ToolName | null;
-  pendingSymbol: string | null;
-  awaitingSecondOperand: boolean;
-  loading: boolean;
-  statusMessage: string;
-  expression: string;
+  currentInput          : string;
+  firstOperand          : number | null;
+  pendingTool           : ToolName | null;
+  pendingSymbol         : string | null;
+  awaitingSecondOperand : boolean;
+  loading               : boolean;
+  statusMessage         : string;
+  expression            : string;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -133,13 +139,17 @@ function formatTime(isoTimestamp: string): string {
   return date.toLocaleTimeString([], { hour12: false });
 }
 
-const displayElementRaw = document.getElementById("display");
-const expressionElementRaw = document.getElementById("expression-display");
-const statusElementRaw = document.getElementById("status");
-const consoleListRaw = document.getElementById("console-list");
-const consoleConnectionRaw = document.getElementById("console-connection");
-const consoleClearRaw = document.getElementById("console-clear");
-const buttonElements = Array.from(document.querySelectorAll<HTMLButtonElement>(".btn"));
+/**
+ * Capture all DOM dependencies once during bootstrap.
+ * We aggressively type-check these nodes before use.
+ */
+const displayElementRaw      = document.getElementById("display");
+const expressionElementRaw   = document.getElementById("expression-display");
+const statusElementRaw       = document.getElementById("status");
+const consoleListRaw         = document.getElementById("console-list");
+const consoleConnectionRaw   = document.getElementById("console-connection");
+const consoleClearRaw        = document.getElementById("console-clear");
+const buttonElements         = Array.from(document.querySelectorAll<HTMLButtonElement>(".btn"));
 
 if (
   !(displayElementRaw instanceof HTMLElement) ||
@@ -152,35 +162,38 @@ if (
   throw new Error("Calculator UI did not initialize. Required DOM elements are missing.");
 }
 
-const displayElement: HTMLElement = displayElementRaw;
-const expressionElement: HTMLElement = expressionElementRaw;
-const statusElement: HTMLElement = statusElementRaw;
-const consoleListElement: HTMLUListElement = consoleListRaw;
+const displayElement      : HTMLElement     = displayElementRaw;
+const expressionElement   : HTMLElement     = expressionElementRaw;
+const statusElement       : HTMLElement     = statusElementRaw;
+const consoleListElement  : HTMLUListElement = consoleListRaw;
 const consoleConnectionElement: HTMLElement = consoleConnectionRaw;
-const consoleClearButton: HTMLButtonElement = consoleClearRaw;
+const consoleClearButton  : HTMLButtonElement = consoleClearRaw;
 
-const MAX_CONSOLE_ENTRIES = 120;
-const UI_TRACE_OFFSET = 1_000_000;
-const seenTraceIds = new Set<number>();
-let uiTraceCounter = 1;
+const MAX_CONSOLE_ENTRIES  = 120;
+const UI_TRACE_OFFSET      = 1_000_000;
+const seenTraceIds         = new Set<number>();
+let uiTraceCounter         = 1;
 let streamState: "connecting" | "connected" | "disconnected" = "connecting";
-let traceStream: EventSource | null = null;
+let traceStream: EventSource | null                           = null;
 
 const state: CalculatorState = {
-  currentInput: "0",
-  firstOperand: null,
-  pendingTool: null,
-  pendingSymbol: null,
-  awaitingSecondOperand: false,
-  loading: false,
-  statusMessage: "",
-  expression: ""
+  currentInput          : "0",
+  firstOperand          : null,
+  pendingTool           : null,
+  pendingSymbol         : null,
+  awaitingSecondOperand : false,
+  loading               : false,
+  statusMessage         : "",
+  expression            : ""
 };
 
 function log(event: string, payload: unknown = {}): void {
   console.log(`[ui] ${event}`, payload);
 }
 
+/**
+ * Updates the stream connectivity badge shown in the learning console header.
+ */
 function setStreamState(nextState: "connecting" | "connected" | "disconnected"): void {
   streamState = nextState;
   consoleConnectionElement.textContent =
@@ -189,37 +202,40 @@ function setStreamState(nextState: "connecting" | "connected" | "disconnected"):
   consoleConnectionElement.classList.add(nextState);
 }
 
+/**
+ * Renders one learning event card in the console list.
+ */
 function appendConsoleEvent(trace: McpConsoleEvent): void {
   if (seenTraceIds.has(trace.id)) {
     return;
   }
   seenTraceIds.add(trace.id);
 
-  const listItem = document.createElement("li");
+  const listItem      = document.createElement("li");
   listItem.className = `console-entry${trace.level === "ERROR" ? " error" : ""}`;
 
-  const meta = document.createElement("p");
+  const meta      = document.createElement("p");
   meta.className = "console-meta";
 
-  const time = document.createElement("span");
+  const time      = document.createElement("span");
   time.className = "console-time";
   time.textContent = formatTime(trace.ts);
 
-  const component = document.createElement("span");
+  const component      = document.createElement("span");
   component.className = "console-component";
   component.textContent = componentLabel(trace.component);
 
-  const eventLabel = document.createElement("span");
+  const eventLabel      = document.createElement("span");
   eventLabel.className = "console-event";
   eventLabel.textContent = trace.event;
 
   meta.append(time, component, eventLabel);
 
-  const summary = document.createElement("p");
+  const summary      = document.createElement("p");
   summary.className = "console-summary";
   summary.textContent = trace.summary;
 
-  const explanation = document.createElement("p");
+  const explanation      = document.createElement("p");
   explanation.className = "console-explanation";
   explanation.textContent = trace.explanation;
 
@@ -243,14 +259,14 @@ function createUiTrace(
   data?: unknown
 ): McpConsoleEvent {
   const trace: McpConsoleEvent = {
-    id: UI_TRACE_OFFSET + uiTraceCounter,
-    ts: new Date().toISOString(),
+    id           : UI_TRACE_OFFSET + uiTraceCounter,
+    ts           : new Date().toISOString(),
     level,
-    component: "ui",
+    component    : "ui",
     event,
     summary,
     explanation,
-    data: isRecord(data) ? data : undefined
+    data         : isRecord(data) ? data : undefined
   };
   uiTraceCounter += 1;
   return trace;
@@ -278,6 +294,9 @@ function setStatus(message: string, isError = false): void {
   statusElement.classList.toggle("error", isError);
 }
 
+/**
+ * Disables interactive controls while request is in-flight.
+ */
 function setLoading(loading: boolean): void {
   state.loading = loading;
   buttonElements.forEach((button) => {
@@ -297,13 +316,17 @@ function updateDisplay(): void {
   expressionElement.textContent = state.expression;
 }
 
+/**
+ * Clears all UI-managed calculator state.
+ * MCP server is intentionally stateless and is not reset here.
+ */
 function clearAll(): void {
-  state.currentInput = "0";
-  state.firstOperand = null;
-  state.pendingTool = null;
-  state.pendingSymbol = null;
+  state.currentInput          = "0";
+  state.firstOperand          = null;
+  state.pendingTool           = null;
+  state.pendingSymbol         = null;
   state.awaitingSecondOperand = false;
-  state.expression = "";
+  state.expression            = "";
   setStatus("");
   updateDisplay();
   emitUiTrace(
@@ -315,7 +338,7 @@ function clearAll(): void {
 
 function appendDigit(digit: string): void {
   if (state.awaitingSecondOperand) {
-    state.currentInput = digit;
+    state.currentInput          = digit;
     state.awaitingSecondOperand = false;
   } else if (state.currentInput === "0") {
     state.currentInput = digit;
@@ -328,7 +351,7 @@ function appendDigit(digit: string): void {
 
 function appendDecimal(): void {
   if (state.awaitingSecondOperand) {
-    state.currentInput = "0.";
+    state.currentInput          = "0.";
     state.awaitingSecondOperand = false;
     updateDisplay();
     return;
@@ -341,6 +364,10 @@ function appendDecimal(): void {
 }
 
 async function callCalculate(tool: ToolName, a: number, b: number): Promise<CalculateSuccessResponse> {
+  /**
+   * Browser -> backend payload.
+   * Backend will validate this with Zod before forwarding to MCP.
+   */
   const requestPayload = {
     tool,
     args: { a, b }
@@ -395,8 +422,12 @@ async function callCalculate(tool: ToolName, a: number, b: number): Promise<Calc
 }
 
 async function executePendingCalculation(nextTool: ToolName | null, nextSymbol: string | null): Promise<void> {
+  /**
+   * When user chains operators (e.g., 2 + 3 *), we resolve the pending call
+   * and then stage the next operator.
+   */
   if (!state.pendingTool || state.firstOperand === null || state.awaitingSecondOperand) {
-    state.pendingTool = nextTool;
+    state.pendingTool   = nextTool;
     state.pendingSymbol = nextSymbol;
     return;
   }
@@ -410,12 +441,12 @@ async function executePendingCalculation(nextTool: ToolName | null, nextSymbol: 
   try {
     setLoading(true);
     const result = await callCalculate(state.pendingTool, state.firstOperand, secondOperand);
-    state.currentInput = formatNumber(result.result);
-    state.firstOperand = result.result;
-    state.pendingTool = nextTool;
-    state.pendingSymbol = nextSymbol;
+    state.currentInput          = formatNumber(result.result);
+    state.firstOperand          = result.result;
+    state.pendingTool           = nextTool;
+    state.pendingSymbol         = nextSymbol;
     state.awaitingSecondOperand = true;
-    state.expression = `${result.expression}`;
+    state.expression            = `${result.expression}`;
     setStatus("");
     updateDisplay();
   } catch (error: unknown) {
@@ -442,11 +473,11 @@ async function handleOperator(symbol: string, tool: ToolName): Promise<void> {
       setStatus("First number is invalid.", true);
       return;
     }
-    state.firstOperand = first;
-    state.pendingTool = tool;
-    state.pendingSymbol = symbol;
+    state.firstOperand          = first;
+    state.pendingTool           = tool;
+    state.pendingSymbol         = symbol;
     state.awaitingSecondOperand = true;
-    state.expression = `${formatNumber(first)} ${symbol}`;
+    state.expression            = `${formatNumber(first)} ${symbol}`;
     updateDisplay();
     emitUiTrace(
       "ui_operator_selected",
@@ -459,9 +490,9 @@ async function handleOperator(symbol: string, tool: ToolName): Promise<void> {
   }
 
   if (state.awaitingSecondOperand) {
-    state.pendingTool = tool;
+    state.pendingTool   = tool;
     state.pendingSymbol = symbol;
-    state.expression = `${formatNumber(state.firstOperand)} ${symbol}`;
+    state.expression    = `${formatNumber(state.firstOperand)} ${symbol}`;
     updateDisplay();
     emitUiTrace(
       "ui_operator_updated",
@@ -498,11 +529,11 @@ async function handleEquals(): Promise<void> {
   try {
     setLoading(true);
     const result = await callCalculate(state.pendingTool, state.firstOperand, secondOperand);
-    state.currentInput = formatNumber(result.result);
-    state.expression = `${result.expression} =`;
-    state.firstOperand = null;
-    state.pendingTool = null;
-    state.pendingSymbol = null;
+    state.currentInput          = formatNumber(result.result);
+    state.expression            = `${result.expression} =`;
+    state.firstOperand          = null;
+    state.pendingTool           = null;
+    state.pendingSymbol         = null;
     state.awaitingSecondOperand = false;
     setStatus("");
     updateDisplay();
@@ -522,6 +553,14 @@ async function handleEquals(): Promise<void> {
 }
 
 function bindButtonHandlers(): void {
+  /**
+   * Centralized click router:
+   * - digit
+   * - decimal
+   * - clear
+   * - equals
+   * - operator
+   */
   buttonElements.forEach((button) => {
     button.addEventListener("click", () => {
       if (state.loading) {
@@ -558,6 +597,10 @@ function bindButtonHandlers(): void {
 }
 
 async function loadConsoleHistory(): Promise<void> {
+  /**
+   * Load prior server traces so user can see startup phases
+   * before any new click is made.
+   */
   try {
     const response = await fetch("/mcp-events");
     const payload: unknown = await response.json();
@@ -580,6 +623,9 @@ async function loadConsoleHistory(): Promise<void> {
 }
 
 function connectTraceStream(): void {
+  /**
+   * Open EventSource stream for live phase-by-phase MCP explanations.
+   */
   setStreamState("connecting");
   traceStream = new EventSource("/mcp-events/stream");
 
@@ -640,6 +686,10 @@ function connectTraceStream(): void {
 }
 
 async function initializeTools(): Promise<void> {
+  /**
+   * Dynamic capability discovery:
+   * UI enables/disables operator buttons based on backend listTools() cache.
+   */
   try {
     emitUiTrace(
       "ui_tool_discovery_started",
