@@ -4,6 +4,7 @@ import type { Server as HttpServer } from "node:http";
 import { fileURLToPath } from "node:url";
 import cors from "cors";
 import express, { type NextFunction, type Request, type Response } from "express";
+import rateLimit from "express-rate-limit";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 import OpenAI from "openai";
@@ -203,6 +204,7 @@ async function runAgenticLoop(
     // Send conversation to LLM — it will either call tools or return a final answer.
     const response = await openai.chat.completions.create({
       model: "gpt-4o-mini",
+      max_tokens: 1024,
       messages,
       tools: tools.length > 0 ? tools : undefined
     });
@@ -317,6 +319,32 @@ async function runAgenticLoop(
 const app = express();
 app.use(cors());
 app.use(express.json());
+
+/* ---------------------------------------------------------------------------
+ * Rate limiting – protects against abuse and runaway LLM costs.
+ * --------------------------------------------------------------------------- */
+
+/** General limiter: 100 requests per 15 minutes per IP. */
+const generalLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 100,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: "Too many requests, please try again later." }
+});
+
+/** Strict limiter for LLM-powered endpoints: 10 requests per minute per IP. */
+const llmLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  max: 10,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: "Too many AI requests. Please slow down and try again in a minute." }
+});
+
+app.use(generalLimiter);
+app.use("/chat", llmLimiter);
+app.use("/calculate", llmLimiter);
 
 /* Request timing logger (skips /healthz to reduce noise). */
 app.use((req: Request, res: Response, next: NextFunction) => {
