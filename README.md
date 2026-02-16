@@ -1,34 +1,69 @@
 # MCP Calculator (TypeScript)
 
-A hands-on project that teaches you how LLMs use tools to solve problems. You will learn five AI engineering concepts by reading real working code:
+> **[Live Demo](https://mcp-demo-ixpr.onrender.com/)** — try it without installing anything
 
-1. **MCP (Model Context Protocol)** — how an LLM discovers and calls external tools
-2. **Tool Calling** — the LLM picks a function and arguments, your code runs it
-3. **Agentic Loop** — the LLM runs in a loop: think, act, observe, repeat
-4. **Chain of Thought** — the LLM "thinks out loud" before choosing tools
-5. **Prompt Engineering** — how a system prompt shapes LLM behavior
+## Why This Exists
 
-The app is a calculator with two ways to use it:
+Most AI tutorials explain concepts with slides or pseudocode. This project takes a different approach: **you learn by reading a working app**.
 
-- **Button calculator** (`/calculate`) — you pick the operation, backend calls MCP
-- **Chat** (`/chat`) — you ask in English, the LLM picks the operation for you
+The domain is deliberately simple (a calculator) so you can focus entirely on the AI patterns. Every function is named after the concept it teaches. The code reads top to bottom like a textbook.
 
-Both paths use the same MCP server and the same tools.
+I built this because when I started building AI applications, I wanted one small codebase that showed how all the pieces fit together — MCP, tool calling, agentic loops, chain of thought, prompt engineering — wired up end to end with real HTTP requests, real LLM calls, and real tool execution. This is that codebase.
 
-## Quick Start
+## What You Will Learn
+
+Five AI engineering concepts, all visible in the code:
+
+| # | Concept | Where in the code |
+|---|---------|-------------------|
+| 1 | **MCP (Model Context Protocol)** — how an LLM discovers and calls external tools | `calculator-server.ts`, `initializeMcp()` |
+| 2 | **Tool Calling** — the LLM picks a function and arguments, your code runs it | `convertMcpToolsToOpenAiFormat()`, `executeSingleToolCall()` |
+| 3 | **Agentic Loop** — the LLM runs in a loop: think, act, observe, repeat | `runAgenticLoop()` |
+| 4 | **Chain of Thought** — the LLM "thinks out loud" before choosing tools | Inside `runAgenticLoop()`, look for `llm_chain_of_thought` |
+| 5 | **Prompt Engineering** — how a system prompt shapes LLM behavior | `buildConversation()` |
+
+## Who This Is For
+
+- **Engineers learning MCP** — see handshake, discovery, and tool execution working end to end
+- **People building their first AI agent** — the agentic loop here is the same pattern used by production agents, just smaller
+- **Anyone curious about tool calling** — watch the LLM decide which function to call and with what arguments
+- **TypeScript developers** — strict types, Zod validation at every boundary, clean project structure
+
+No AI experience needed. If you can read TypeScript and understand HTTP requests, you can follow this code.
+
+## 5-Minute Quickstart
+
+**Prerequisites:** Node.js >= 20, an OpenAI API key
 
 ```bash
+# 1. Clone
+git clone https://github.com/madhusudankapoor/mcpcal.git
+cd mcpcal
+
+# 2. Install and build
 npm install
 npm run build
+
+# 3. Add your OpenAI key
 echo 'OPENAI_API_KEY=sk-...' > .env
+
+# 4. Start (backend auto-spawns MCP server)
 npm run start:client
 ```
 
-Open [http://localhost:3000](http://localhost:3000). Try `5 + 3 =` with buttons, or type `what is 12 times 7?` in the chat.
+Open [http://localhost:3000](http://localhost:3000).
 
-## How It Works
+**Try these three things:**
 
-There are three pieces. The backend sits in the middle and talks to the other two:
+1. Click `5 + 3 =` — watch the learning console show MCP phases (handshake → discovery → execution)
+2. Type `what is 5 + 3?` in chat — single-round agentic loop (LLM calls one tool, gets answer)
+3. Type `what is 4 * 4 * 4?` in chat — multi-round agentic loop (LLM calls multiply twice across 3 rounds)
+
+The learning console at the bottom shows every step: what gets sent to the LLM, what comes back, which tools are selected, and how the loop converges on an answer.
+
+Or skip setup entirely and use the **[Live Demo](https://mcp-demo-ixpr.onrender.com/)**.
+
+## Architecture
 
 ```text
 ┌─────────────────────────────────────────────────────────────────┐
@@ -81,9 +116,11 @@ There are three pieces. The backend sits in the middle and talks to the other tw
                                            └───────────────┘
 ```
 
-**The key idea:** OpenAI never talks to your MCP server. OpenAI is a brain that cannot move its hands. It looks at a menu of tools and says "I want to call add(15, 27)". Your backend is the one that actually runs the tool via MCP and feeds the result back.
+**The key idea:** OpenAI never talks to your MCP server. OpenAI is a brain that cannot move its hands. It looks at a menu of tools and says "I want to call add(15, 27)". Your backend actually runs the tool via MCP and feeds the result back.
 
-## What Happens When You Type "What is 15 plus 27?"
+## How It Works: Step by Step
+
+### What Happens When You Type "What is 15 plus 27?"
 
 ```text
 Step 1: Browser sends message to backend
@@ -108,7 +145,7 @@ Step 6: OpenAI responds
 Step 7: Backend returns answer to browser
 ```
 
-## The Agentic Loop
+### The Agentic Loop
 
 Simple questions finish in one round. But "what is 4 * 4 * 4?" needs multiple rounds because the LLM can only multiply two numbers at a time:
 
@@ -138,13 +175,13 @@ Round 3: LLM sees 64
          No more tools needed → returns "4 * 4 * 4 equals 64."
 ```
 
-The conversation grows each round. The LLM sees ALL previous tool calls and results, which is how it knows to multiply 16 × 4 instead of 4 × 4 again.
+The conversation grows each round. The LLM sees ALL previous tool calls and results, which is how it knows to multiply 16 x 4 instead of 4 x 4 again.
 
 The loop ends in one of two ways:
 - **Natural:** The LLM returns text with no tool calls — it has its answer.
 - **Safety:** The loop hits the max rounds limit (10) to prevent infinite loops.
 
-## Chain of Thought
+### Chain of Thought
 
 Sometimes the LLM thinks out loud before calling tools. For example, when asked "what is (2 + 3) times (4 + 5)?":
 
@@ -156,6 +193,20 @@ LLM wants to call 2 tool(s):
 ```
 
 This reasoning text is logged as a Chain of Thought event in the learning console.
+
+### Two Paths, Same MCP Server
+
+```text
+                    ┌─────────────────────────┐
+  Button click:     │                         │
+  User picks tool   │      MCP Server         │
+  ─────────────────>│      (same server,      │
+                    │       same tools,       │
+  Chat message:     │       same result)      │
+  LLM picks tool    │                         │
+  ─────────────────>│                         │
+                    └─────────────────────────┘
+```
 
 ## MCP Lifecycle
 
@@ -224,20 +275,6 @@ Browser                    Backend                    MCP Server
 
 For chat, the same `callTool()` happens inside the agentic loop. The MCP server does not know or care who called it.
 
-## Two Paths, Same MCP Server
-
-```text
-                    ┌─────────────────────────┐
-  Button click:     │                         │
-  User picks tool   │      MCP Server         │
-  ─────────────────>│      (same server,      │
-                    │       same tools,       │
-  Chat message:     │       same result)      │
-  LLM picks tool    │                         │
-  ─────────────────>│                         │
-                    └─────────────────────────┘
-```
-
 ## The /chat Endpoint — 5 Steps
 
 The chat route is a short orchestrator that calls the AI helper functions in order:
@@ -304,7 +341,7 @@ mcp-calculator/
 └── README.md
 ```
 
-### What each file does
+### What Each File Does
 
 **`client-backend.ts`** is the main file. Read it top to bottom — it tells the story of how a chat message becomes tool calls and back to an answer. It contains:
 - AI helper functions (`buildConversation`, `convertMcpToolsToOpenAiFormat`, `executeSingleToolCall`, `executeToolCallsFromLlm`, `runAgenticLoop`)
@@ -333,18 +370,6 @@ TypeScript types disappear at runtime. Data crossing boundaries (HTTP, MCP, LLM 
 
 This prevents bad data from becoming hidden bugs.
 
-## Prerequisites
-
-- Node.js >= 20
-- An OpenAI API key (for the chat feature)
-
-## Setup
-
-```bash
-npm install
-npm run build
-```
-
 ## Environment Variables
 
 | Variable | Required | Default | Description |
@@ -358,14 +383,6 @@ Create a `.env` file in the project root (already in `.gitignore`):
 ```bash
 echo 'OPENAI_API_KEY=sk-...' > .env
 ```
-
-## Running
-
-```bash
-npm run dev
-```
-
-This builds TypeScript and starts the backend, which spawns the MCP server automatically. Open [http://localhost:3000](http://localhost:3000).
 
 ## API Endpoints
 
@@ -436,15 +453,33 @@ Returns trace history snapshot.
 
 Live Server-Sent Events stream of trace events.
 
-## Verification
+## Contributing
 
-1. `npm run build` — compiles without errors
-2. Open http://localhost:3000
-3. Click `5 + 3 =` — calculator shows 8, learning console shows MCP phases
-4. Type "what is 5 + 3?" — single-round agentic loop
-5. Type "what is 4 * 4 * 4?" — multi-round agentic loop (2+ tool rounds)
-6. Type "hello" — polite redirect, no tool calls
-7. Learning console shows data flow at every step
+Contributions are welcome. This is an educational project, so clarity matters more than cleverness.
+
+**How to contribute:**
+
+1. Fork the repo
+2. Create a branch (`git checkout -b my-change`)
+3. Make your changes
+4. Make sure `npm run build` passes
+5. Open a pull request
+
+**Good first contributions:**
+- Add a new MCP tool (e.g., `modulo`, `power`) — the server, types, and UI will all need updating
+- Improve learning console explanations
+- Add tests
+- Fix typos or unclear wording in code comments or README
+
+**Guidelines:**
+- Keep code simple and readable — this is a teaching tool
+- Every function should be named after what it does
+- Short comments over long JSDoc essays
+- If you add a feature, update the README
+
+## License
+
+MIT
 
 ## Why MCP for a Calculator?
 
