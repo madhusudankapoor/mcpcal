@@ -69,7 +69,7 @@ Or skip setup entirely and use the **[Live Demo](https://mcp-demo-ixpr.onrender.
 ┌─────────────────────────────────────────────────────────────────┐
 │                        YOUR MACHINE                             │
 │                                                                 │
-│  ┌─────────────┐     HTTP      ┌───────────────────────────┐   │
+│  ┌──────────────┐     HTTP      ┌───────────────────────────┐   │
 │  │  Browser UI  │ ────────────> │  Express Backend          │   │
 │  │              │               │  (client-backend.ts)      │   │
 │  │ Calculator   │  POST /chat   │                           │   │
@@ -80,10 +80,10 @@ Or skip setup entirely and use the **[Live Demo](https://mcp-demo-ixpr.onrender.
 │  │ Chat output  │ <──────────── │  5. Returns final answer  │   │
 │  └──────────────┘               └──────┬──────────┬─────────┘   │
 │                                        │          │             │
-│                                 MCP/stdio    HTTPS API          │
+│                                    MCP/stdio  HTTPS API         │
 │                                        │          │             │
 │                                        ▼          │             │
-│                               ┌──────────────┐   │             │
+│                               ┌───────────────┐   │             │
 │                               │  MCP Server   │   │             │
 │                               │  (separate    │   │             │
 │                               │   process)    │   │             │
@@ -150,18 +150,18 @@ Step 7: Backend returns answer to browser
 Simple questions finish in one round. But "what is 4 * 4 * 4?" needs multiple rounds because the LLM can only multiply two numbers at a time:
 
 ```text
-┌─────────────────────────────────────────────────────┐
-│                   AGENTIC LOOP                      │
-│                                                     │
-│  ┌──────────┐    ┌──────────┐    ┌──────────┐      │
-│  │ OBSERVE  │───▶│  THINK   │───▶│   ACT    │      │
-│  │ (tool    │    │ (LLM     │    │ (execute │      │
-│  │ results) │    │ reasons) │    │ tools)   │      │
-│  └──────────┘    └──────────┘    └──────────┘      │
-│       ▲                               │             │
-│       └───────────────────────────────┘             │
-│              loop until done                        │
-└─────────────────────────────────────────────────────┘
+┌──────────────────────────────────────────────────┐
+│                   AGENTIC LOOP                   │
+│                                                  │
+│  ┌──────────┐    ┌──────────┐    ┌──────────┐    │
+│  │ OBSERVE  │───▶│  THINK   │───▶│   ACT    │    │
+│  │ (tool    │    │ (LLM     │    │ (execute │    │
+│  │ results) │    │ reasons) │    │ tools)   │    │
+│  └──────────┘    └──────────┘    └──────────┘    │
+│       ▲                               │          │
+│       └───────────────────────────────┘          │
+│              loop until done                     │
+└──────────────────────────────────────────────────┘
 
 Round 1: User asks "what is 4 * 4 * 4?"
          LLM thinks → calls multiply(4, 4)
