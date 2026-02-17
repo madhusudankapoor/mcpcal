@@ -166,6 +166,7 @@ export interface McpConsoleEvent {
   event        : string;
   summary      : string;
   explanation  : string;
+  rawPayload?  : string;
   data?        : Record<string, unknown>;
 }
 

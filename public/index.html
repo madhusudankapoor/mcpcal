@@ -9,60 +9,62 @@
   <body>
     <main class="page">
       <section class="calculator" aria-label="MCP calculator">
-        <header class="display-wrap">
-          <p id="expression-display" class="expression" aria-live="polite"></p>
-          <h1 id="display" class="display" aria-live="polite">0</h1>
-          <p id="status" class="status" aria-live="polite"></p>
-        </header>
+        <div class="left-panel">
+          <header class="display-wrap">
+            <p id="expression-display" class="expression" aria-live="polite"></p>
+            <h1 id="display" class="display" aria-live="polite">0</h1>
+            <p id="status" class="status" aria-live="polite"></p>
+          </header>
 
-        <div class="buttons" role="group" aria-label="Calculator buttons">
-          <button class="btn btn-clear" data-action="clear">C</button>
-          <button class="btn btn-op" data-tool="divide" data-symbol="÷">÷</button>
-          <button class="btn btn-op" data-tool="multiply" data-symbol="×">×</button>
-          <button class="btn btn-op" data-tool="subtract" data-symbol="-">-</button>
+          <div class="buttons" role="group" aria-label="Calculator buttons">
+            <button class="btn btn-clear" data-action="clear">C</button>
+            <button class="btn btn-op" data-tool="divide" data-symbol="÷">÷</button>
+            <button class="btn btn-op" data-tool="multiply" data-symbol="×">×</button>
+            <button class="btn btn-op" data-tool="subtract" data-symbol="-">-</button>
 
-          <button class="btn" data-digit="7">7</button>
-          <button class="btn" data-digit="8">8</button>
-          <button class="btn" data-digit="9">9</button>
-          <button class="btn btn-op" data-tool="add" data-symbol="+">+</button>
+            <button class="btn" data-digit="7">7</button>
+            <button class="btn" data-digit="8">8</button>
+            <button class="btn" data-digit="9">9</button>
+            <button class="btn btn-op" data-tool="add" data-symbol="+">+</button>
 
-          <button class="btn" data-digit="4">4</button>
-          <button class="btn" data-digit="5">5</button>
-          <button class="btn" data-digit="6">6</button>
-          <button class="btn btn-equals" data-action="equals">=</button>
+            <button class="btn" data-digit="4">4</button>
+            <button class="btn" data-digit="5">5</button>
+            <button class="btn" data-digit="6">6</button>
+            <button class="btn btn-equals" data-action="equals">=</button>
 
-          <button class="btn" data-digit="1">1</button>
-          <button class="btn" data-digit="2">2</button>
-          <button class="btn" data-digit="3">3</button>
-          <button class="btn" data-action="decimal">.</button>
+            <button class="btn" data-digit="1">1</button>
+            <button class="btn" data-digit="2">2</button>
+            <button class="btn" data-digit="3">3</button>
+            <button class="btn" data-action="decimal">.</button>
 
-          <button class="btn btn-zero" data-digit="0">0</button>
-        </div>
-
-        <section class="chat-panel" aria-label="Chat with LLM">
-          <h2 class="chat-title">Ask Calculator</h2>
-          <p class="chat-subtitle">Powered by OpenAI function calling + MCP</p>
-          <div class="chat-input-wrap">
-            <input id="chat-input" class="chat-input" type="text" placeholder="Ask a math question..." maxlength="500" autocomplete="off" />
-            <button id="chat-send" class="chat-send" type="button">Send</button>
+            <button class="btn btn-zero" data-digit="0">0</button>
           </div>
-          <div class="chat-response-wrap">
-            <span class="chat-response-label">Response</span>
-            <div id="chat-response" class="chat-response">
-              <p class="chat-placeholder">Answer will appear here</p>
+
+          <section class="chat-panel" aria-label="Chat with LLM">
+            <h2 class="chat-title">Ask Calculator</h2>
+            <p class="chat-subtitle">Powered by OpenAI function calling + MCP</p>
+            <div class="chat-input-wrap">
+              <input id="chat-input" class="chat-input" type="text" placeholder="Ask a math question..." maxlength="500" autocomplete="off" />
+              <button id="chat-send" class="chat-send" type="button">Send</button>
             </div>
-          </div>
-        </section>
+            <div class="chat-response-wrap">
+              <span class="chat-response-label">Response</span>
+              <div id="chat-response" class="chat-response">
+                <p class="chat-placeholder">Answer will appear here</p>
+              </div>
+            </div>
+          </section>
+        </div>
 
         <section class="console-panel" aria-label="MCP learning console">
           <div class="console-header">
-            <h2 class="console-title">MCP Learning Console</h2>
+            <h2 class="console-title">AI Reasoning Console</h2>
             <div class="console-controls">
               <span id="console-connection" class="console-connection connecting">Connecting...</span>
               <button id="console-clear" class="console-clear" type="button">Clear</button>
             </div>
           </div>
-          <p class="console-help">Live timeline explaining each MCP step from UI input to server result.</p>
+          <p class="console-help">Live trace of the agentic loop — tool selection, LLM reasoning, and MCP execution.</p>
           <ul id="console-list" class="console-list" aria-live="polite"></ul>
         </section>
       </section>

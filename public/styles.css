@@ -29,12 +29,16 @@ body {
 .page {
   min-height: 100vh;
   display: grid;
-  place-items: center;
+  place-items: start center;
   padding: 24px;
 }
 
 .calculator {
-  width: min(520px, 100%);
+  width: 100%;
+  display: flex;
+  flex-direction: row;
+  align-items: stretch;
+  gap: 16px;
   background: var(--panel);
   border: 1px solid var(--panel-border);
   border-radius: 24px;
@@ -42,35 +46,40 @@ body {
   padding: 20px;
 }
 
+.left-panel {
+  flex-shrink: 0;
+  width: 420px;
+}
+
 .display-wrap {
   background: linear-gradient(180deg, #f9fbfd, #edf3f8);
   border: 1px solid #d7e2ec;
-  border-radius: 16px;
-  padding: 14px;
-  min-height: 122px;
+  border-radius: 12px;
+  padding: 6px 10px;
+  min-height: 56px;
 }
 
 .expression {
   margin: 0;
-  min-height: 22px;
+  min-height: 16px;
   text-align: right;
   color: var(--muted);
-  font-size: 0.95rem;
+  font-size: 0.78rem;
   letter-spacing: 0.01em;
 }
 
 .display {
-  margin: 8px 0 4px;
-  min-height: 52px;
+  margin: 2px 0 1px;
+  min-height: 24px;
   text-align: right;
-  font-size: clamp(2rem, 6vw, 2.6rem);
+  font-size: clamp(1rem, 3vw, 1.3rem);
   font-weight: 700;
 }
 
 .status {
   margin: 0;
-  min-height: 22px;
-  font-size: 0.92rem;
+  min-height: 16px;
+  font-size: 0.75rem;
   color: var(--muted);
 }
 
@@ -80,20 +89,20 @@ body {
 }
 
 .buttons {
-  margin-top: 16px;
+  margin-top: 8px;
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 10px;
+  gap: 5px;
 }
 
 .btn {
   border: 1px solid #d5dee8;
-  border-radius: 14px;
+  border-radius: 10px;
   background: var(--button);
   color: var(--text);
-  font-size: 1.05rem;
+  font-size: 0.8rem;
   font-weight: 600;
-  min-height: 54px;
+  min-height: 28px;
   cursor: pointer;
   transition:
     transform 120ms ease,
@@ -239,7 +248,9 @@ body {
 }
 
 .console-panel {
-  margin-top: 16px;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
   border: 1px solid #11304f;
   border-radius: 16px;
   overflow: hidden;
@@ -320,8 +331,8 @@ body {
   list-style: none;
   margin: 0;
   padding: 10px;
-  max-height: 250px;
-  overflow: auto;
+  flex: 1;
+  overflow-y: auto;
   display: flex;
   flex-direction: column;
   gap: 8px;
@@ -369,16 +380,31 @@ body {
 
 .console-summary {
   margin: 6px 0 0;
-  font-size: 0.8rem;
-  font-weight: 700;
+  font-size: 0.74rem;
+  font-weight: 400;
   color: #e9f2fc;
 }
 
 .console-explanation {
   margin: 4px 0 0;
-  font-size: 0.77rem;
+  font-size: 0.71rem;
   line-height: 1.35;
   color: #bfd4ea;
+}
+
+.console-payload {
+  margin: 6px 0 0;
+  padding: 8px 10px;
+  border: 1px solid rgba(100, 160, 220, 0.3);
+  border-left: 3px solid rgba(100, 160, 220, 0.6);
+  border-radius: 6px;
+  background: rgba(0, 0, 0, 0.25);
+  font-size: 0.72rem;
+  line-height: 1.5;
+  color: #a8d4f5;
+  white-space: pre-wrap;
+  word-break: break-word;
+  overflow-x: auto;
 }
 
 body.loading .calculator {
@@ -394,17 +420,22 @@ body.loading .calculator {
   }
 }
 
-@media (max-width: 480px) {
+@media (max-width: 640px) {
   .calculator {
+    flex-direction: column;
     border-radius: 18px;
     padding: 16px;
   }
 
-  .btn {
-    min-height: 50px;
+  .left-panel {
+    width: 100%;
   }
 
-  .console-list {
-    max-height: 220px;
+  .console-panel {
+    min-height: 300px;
+  }
+
+  .btn {
+    min-height: 36px;
   }
 }

@@ -37,6 +37,7 @@ interface McpConsoleEvent {
   event        : string;
   summary      : string;
   explanation  : string;
+  rawPayload?  : string;
   data?        : Record<string, unknown>;
 }
 
@@ -129,6 +130,7 @@ function isMcpConsoleEvent(value: unknown): value is McpConsoleEvent {
     typeof value.event === "string" &&
     typeof value.summary === "string" &&
     typeof value.explanation === "string" &&
+    (value.rawPayload === undefined || typeof value.rawPayload === "string") &&
     (value.data === undefined || isRecord(value.data))
   );
 }
@@ -279,6 +281,13 @@ function appendConsoleEvent(trace: McpConsoleEvent): void {
   explanation.textContent = trace.explanation;
 
   listItem.append(meta, summary, explanation);
+
+  if (trace.rawPayload) {
+    const pre      = document.createElement("pre");
+    pre.className = "console-payload";
+    pre.textContent = trace.rawPayload;
+    listItem.append(pre);
+  }
   consoleListElement.append(listItem);
 
   while (consoleListElement.children.length > MAX_CONSOLE_ENTRIES) {

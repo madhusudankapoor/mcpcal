@@ -51,8 +51,11 @@ function buildConversation(userMessage: string): ChatCompletionMessageParam[] {
     {
       role: "system",
       content:
-        "You are a calculator assistant. Use the provided tools to perform arithmetic. " +
-        "Always use tools for every arithmetic step — never compute results mentally. " +
+        "You are a calculator assistant that supports add, subtract, multiply, and divide — nothing else. " +
+        "Always use the provided tools for every arithmetic step — never compute results mentally. " +
+        "You may chain multiple tool calls to evaluate expressions like 4*4*4/2 (multiply 4*4, then multiply by 4, then divide by 2). " +
+        "REFUSE any request that requires operations beyond add, subtract, multiply, and divide — such as averages, percentages, exponents, square roots, modulo, or summations. " +
+        "When refusing, explain that you only support the four basic operations: add, subtract, multiply, and divide. " +
         "Always respond in plain text without any LaTeX, markdown, or special formatting. " +
         "If the user asks something that is not a math operation, politely explain that you can only help with calculations."
     },
@@ -619,7 +622,11 @@ app.post(
       const messages = buildConversation(message);
       const tools = convertMcpToolsToOpenAiFormat();
 
-      log("INFO", "llm_request", { message, toolCount: tools.length });
+      log("INFO", "llm_request", {
+        message,
+        toolCount: tools.length,
+        conversationSnapshot: summarizeMessagesForHumans(messages)
+      });
 
       const chatResponse = await runAgenticLoop(messages, tools, mcpClient, 10);
       res.json(chatResponse);
