@@ -1,6 +1,7 @@
-/* Learning console trace/logging system — SSE broadcasting + event formatting. */
+/* Learning console trace/logging system — per-session SSE broadcasting + event formatting. */
 
 import type { Response } from "express";
+import { AsyncLocalStorage } from "node:async_hooks";
 import type { McpConsoleEvent } from "../shared/types.js";
 import { isRecord, getString, getNumber, getBoolean } from "./utils.js";
 
@@ -8,46 +9,129 @@ export type LogLevel = "INFO" | "ERROR";
 
 const TRACE_HISTORY_LIMIT = 200;
 
-/* SSE clients currently subscribed to /mcp-events/stream. */
-export const traceClients = new Set<Response>();
+/* Per-request session context so publishTrace() routes events to the correct browser tab. */
+export const sessionStorage = new AsyncLocalStorage<string>();
 
-/* In-memory rolling trace history for the MCP learning console. */
-export const traceHistory: McpConsoleEvent[] = [];
+/* Per-session SSE clients and rolling trace history. */
+const sessionClients = new Map<string, Set<Response>>();
+const sessionTraces  = new Map<string, McpConsoleEvent[]>();
 
 let traceSequence = 1;
 
-/* Sends one SSE frame to all connected browsers. */
-function writeTraceToClients(trace: McpConsoleEvent): void {
-  const frame = `event: trace\ndata: ${JSON.stringify(trace)}\n\n`;
+/* ── Session management helpers ──────────────────────────────────────────── */
 
-  for (const client of traceClients) {
-    try {
-      client.write(frame);
-    } catch {
-      traceClients.delete(client);
+/** Register an SSE response for a session. */
+export function addSessionClient(sessionId: string, res: Response): void {
+  let clients = sessionClients.get(sessionId);
+  if (!clients) {
+    clients = new Set();
+    sessionClients.set(sessionId, clients);
+  }
+  clients.add(res);
+}
+
+/** Unregister an SSE response; cleans up session data when last client leaves. */
+export function removeSessionClient(sessionId: string, res: Response): void {
+  const clients = sessionClients.get(sessionId);
+  if (clients) {
+    clients.delete(res);
+    if (clients.size === 0) {
+      sessionClients.delete(sessionId);
+      sessionTraces.delete(sessionId);
     }
   }
 }
 
-/* Adds a trace item to history and broadcasts it to live subscribers. */
-export function publishTrace(trace: Omit<McpConsoleEvent, "id" | "ts">): void {
+/** All SSE responses across every session (for shutdown). */
+export function getAllClients(): Response[] {
+  const all: Response[] = [];
+  for (const clients of sessionClients.values()) {
+    for (const client of clients) {
+      all.push(client);
+    }
+  }
+  return all;
+}
+
+/** Tears down all session state (for shutdown). */
+export function clearAllSessions(): void {
+  sessionClients.clear();
+  sessionTraces.clear();
+}
+
+/** Returns trace history for one session. */
+export function getSessionTraces(sessionId: string): McpConsoleEvent[] {
+  return sessionTraces.get(sessionId) ?? [];
+}
+
+/**
+ * Sends a "clear" SSE event to one session and wipes its trace history.
+ * Called at the start of every /calculate or /chat so each execution gets a clean console.
+ */
+export function clearSessionTrace(sessionId: string): void {
+  sessionTraces.delete(sessionId);
+  const clients = sessionClients.get(sessionId);
+  if (!clients) return;
+  const frame = `event: clear\ndata: {}\n\n`;
+  for (const client of clients) {
+    try {
+      client.write(frame);
+    } catch {
+      clients.delete(client);
+    }
+  }
+}
+
+/* ── Trace publishing ────────────────────────────────────────────────────── */
+
+/** Sends one SSE trace frame to a session's connected browsers. */
+function writeTraceToSessionClients(trace: McpConsoleEvent, sessionId: string): void {
+  const clients = sessionClients.get(sessionId);
+  if (!clients) return;
+  const frame = `event: trace\ndata: ${JSON.stringify(trace)}\n\n`;
+  for (const client of clients) {
+    try {
+      client.write(frame);
+    } catch {
+      clients.delete(client);
+    }
+  }
+}
+
+/**
+ * Adds a trace to the active session's history and broadcasts it.
+ * Session is read from AsyncLocalStorage or the explicit targetSessionId param.
+ * Traces without a session (e.g. startup) are silently skipped — they still
+ * appear in server stdout via log().
+ */
+export function publishTrace(trace: Omit<McpConsoleEvent, "id" | "ts">, targetSessionId?: string): void {
+  const sessionId = targetSessionId ?? sessionStorage.getStore();
+
   const nextTrace: McpConsoleEvent = {
     id: traceSequence,
     ts: new Date().toISOString(),
     ...trace
   };
-
   traceSequence += 1;
-  traceHistory.push(nextTrace);
 
-  if (traceHistory.length > TRACE_HISTORY_LIMIT) {
-    traceHistory.shift();
+  /* No session context (e.g. startup) → skip storage and broadcast. */
+  if (!sessionId) return;
+
+  let history = sessionTraces.get(sessionId);
+  if (!history) {
+    history = [];
+    sessionTraces.set(sessionId, history);
+  }
+  history.push(nextTrace);
+  if (history.length > TRACE_HISTORY_LIMIT) {
+    history.shift();
   }
 
-  writeTraceToClients(nextTrace);
+  writeTraceToSessionClients(nextTrace, sessionId);
 }
 
-/* Converts backend machine events into user-facing learning explanations. */
+/* ── Converts backend machine events into user-facing learning explanations ─ */
+
 function describeTrace(
   level: LogLevel,
   event: string,

@@ -212,7 +212,12 @@ const chatResponseElement        : HTMLElement       = chatResponseRaw;
 
 const MAX_CONSOLE_ENTRIES    = 120;
 const UI_TRACE_OFFSET        = 1_000_000;
-const seenTraceIds           = new Set<number>();
+let   seenTraceIds           = new Set<number>();
+
+/* Unique session ID per browser tab — isolates traces from other users. */
+const sessionId: string = typeof crypto !== "undefined" && typeof crypto.randomUUID === "function"
+  ? crypto.randomUUID()
+  : `s-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
 let uiTraceCounter           = 1;
 let streamState              : "connecting" | "connected" | "disconnected" = "connecting";
 let traceStream              : EventSource | null                          = null;
@@ -432,7 +437,8 @@ async function callCalculate(tool: ToolName, a: number, b: number): Promise<Calc
   const response = await fetch("/calculate", {
     method: "POST",
     headers: {
-      "Content-Type": "application/json"
+      "Content-Type": "application/json",
+      "X-Session-Id": sessionId
     },
     body: JSON.stringify(requestPayload)
   });
@@ -675,7 +681,7 @@ async function sendChatMessage(): Promise<void> {
   try {
     const response = await fetch("/chat", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: { "Content-Type": "application/json", "X-Session-Id": sessionId },
       body: JSON.stringify({ message })
     });
 
@@ -803,7 +809,9 @@ async function loadConsoleHistory(): Promise<void> {
    * before any new click is made.
    */
   try {
-    const response = await fetch("/mcp-events");
+    const response = await fetch("/mcp-events", {
+      headers: { "X-Session-Id": sessionId }
+    });
     const payload: unknown = await response.json();
     if (!response.ok || !isMcpConsoleEventsResponse(payload)) {
       throw new Error("Unable to load MCP trace history.");
@@ -828,7 +836,7 @@ function connectTraceStream(): void {
    * Open EventSource stream for live phase-by-phase MCP explanations.
    */
   setStreamState("connecting");
-  traceStream = new EventSource("/mcp-events/stream");
+  traceStream = new EventSource(`/mcp-events/stream?sessionId=${encodeURIComponent(sessionId)}`);
 
   traceStream.addEventListener("open", () => {
     const previousState = streamState;
@@ -871,6 +879,12 @@ function connectTraceStream(): void {
     }
 
     appendConsoleEvent(payload);
+  });
+
+  /* Server sends a "clear" event at the start of every new execution. */
+  traceStream.addEventListener("clear", () => {
+    consoleListElement.replaceChildren();
+    seenTraceIds = new Set();
   });
 
   traceStream.addEventListener("error", () => {

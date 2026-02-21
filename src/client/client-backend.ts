@@ -25,7 +25,17 @@ import {
 
 import { isRecord } from "./utils.js";
 import { parseToolPayload, operatorForTool, normalizeDiscoveredTools } from "./mcp-payload.js";
-import { log, publishTrace, traceClients, traceHistory } from "./trace.js";
+import {
+  log,
+  publishTrace,
+  sessionStorage,
+  addSessionClient,
+  removeSessionClient,
+  getAllClients,
+  clearAllSessions,
+  getSessionTraces,
+  clearSessionTrace
+} from "./trace.js";
 import { summarizeMessagesForHumans, summarizeLlmResponseForHumans } from "./formatters.js";
 import { dailyLimitMiddleware, getDailyUsage, isDailyLimitReached, DAILY_REQUEST_LIMIT } from "./daily-limit.js";
 
@@ -324,6 +334,16 @@ const app = express();
 app.use(cors());
 app.use(express.json());
 
+/* Session context — wraps every request so trace.ts routes events to the correct tab. */
+app.use((req: Request, _res: Response, next: NextFunction) => {
+  const sessionId = (req.headers["x-session-id"] as string) || (req.query.sessionId as string) || "";
+  if (sessionId) {
+    sessionStorage.run(sessionId, () => next());
+  } else {
+    next();
+  }
+});
+
 /* ---------------------------------------------------------------------------
  * Rate limiting – protects against abuse and runaway LLM costs.
  * --------------------------------------------------------------------------- */
@@ -442,13 +462,20 @@ async function initializeMcp(): Promise<void> {
  * Routes
  * --------------------------------------------------------------------------- */
 
-/* Trace history snapshot. */
+/* Trace history snapshot (scoped to the requesting session). */
 app.get("/mcp-events", (_req: Request, res: Response<McpConsoleEventsResponse>) => {
-  res.json({ events: traceHistory });
+  const sessionId = sessionStorage.getStore() ?? "";
+  res.json({ events: sessionId ? getSessionTraces(sessionId) : [] });
 });
 
-/* Live SSE trace stream. */
+/* Live SSE trace stream (scoped to one session via query param). */
 app.get("/mcp-events/stream", (req: Request, res: Response) => {
+  const sessionId = (req.query.sessionId as string) || "";
+  if (!sessionId) {
+    res.status(400).json({ error: "Missing sessionId query parameter." });
+    return;
+  }
+
   res.setHeader("Content-Type", "text/event-stream");
   res.setHeader("Cache-Control", "no-cache");
   res.setHeader("Connection", "keep-alive");
@@ -456,11 +483,11 @@ app.get("/mcp-events/stream", (req: Request, res: Response) => {
 
   res.write("retry: 1200\n\n");
 
-  for (const trace of traceHistory) {
+  for (const trace of getSessionTraces(sessionId)) {
     res.write(`event: trace\ndata: ${JSON.stringify(trace)}\n\n`);
   }
 
-  traceClients.add(res);
+  addSessionClient(sessionId, res);
 
   const keepAlive = setInterval(() => {
     res.write(": ping\n\n");
@@ -468,7 +495,7 @@ app.get("/mcp-events/stream", (req: Request, res: Response) => {
 
   req.on("close", () => {
     clearInterval(keepAlive);
-    traceClients.delete(res);
+    removeSessionClient(sessionId, res);
   });
 });
 
@@ -518,6 +545,10 @@ app.post(
     }
 
     const requestBody = validation.data;
+
+    /* Clear previous execution's traces so the console shows only this operation. */
+    const sessionId = sessionStorage.getStore();
+    if (sessionId) clearSessionTrace(sessionId);
 
     log("INFO", "mcp_phase_3_tool_execution_started", {
       tool: requestBody.tool,
@@ -618,6 +649,10 @@ app.post(
 
     const { message } = validation.data;
 
+    /* Clear previous execution's traces so the console shows only this operation. */
+    const chatSessionId = sessionStorage.getStore();
+    if (chatSessionId) clearSessionTrace(chatSessionId);
+
     try {
       const messages = buildConversation(message);
       const tools = convertMcpToolsToOpenAiFormat();
@@ -701,10 +736,10 @@ async function shutdown(signal: string): Promise<void> {
     });
   }
 
-  for (const client of traceClients) {
+  for (const client of getAllClients()) {
     client.end();
   }
-  traceClients.clear();
+  clearAllSessions();
 
   if (!httpServer) {
     process.exit(0);
